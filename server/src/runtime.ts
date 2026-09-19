@@ -1,6 +1,8 @@
+import {readStartup} from './startup.ts';
+const activePort = readStartup().port;
 /** Shared by the API and development server. Never trust a request Host for client URLs. */
 export function consolePort(env: NodeJS.ProcessEnv = process.env): number {
-  const value = Number(env['PORT'] || 8320);
+  const value = Number(env['PORT'] || (env === process.env ? activePort : 8320));
   if (!Number.isInteger(value) || value < 1 || value > 65535) throw new Error('PORT must be between 1 and 65535');
   return value;
 }

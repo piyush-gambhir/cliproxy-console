@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
-import {CONFIG_FILE, SETTINGS_DB} from './paths.ts';
+import {CONFIG_FILE, SETTINGS_DB, DESKTOP_CONFIG_DIR, CLAUDE_CONFIG_DIR, expandHome, resolveUserDir} from './paths.ts';
+import {DEFAULT_CLAUDE_MODELS, validateClaudeModels, EFFORTS, type ClaudeModelOption, type Effort} from './model-config.ts';
 import {consoleOrigin} from './runtime.ts';
 
 export interface ConsoleConfig {
@@ -10,16 +11,25 @@ export interface ConsoleConfig {
   managementKey: string;
   clientApiKey: string;
   routingMode: 'manual';
+  claudeModels: ClaudeModelOption[];
+  cliEffort: Effort;
+  claudeConfigDir: string;
+  desktopConfigDir: string;
+  consoleUrl: string;
 }
 
 export const DEFAULT_PROXY_URL = 'http://127.0.0.1:8317';
 const DEFAULTS: ConsoleConfig = {
   displayName: 'CLIProxy Console', proxyUrl: DEFAULT_PROXY_URL,
   managementKey: '', clientApiKey: '', routingMode: 'manual',
+  claudeModels: DEFAULT_CLAUDE_MODELS, cliEffort: 'high',
+  claudeConfigDir: CLAUDE_CONFIG_DIR, desktopConfigDir: DESKTOP_CONFIG_DIR, consoleUrl: '',
 };
 const ENV = {
   displayName: 'CLIPROXY_DISPLAY_NAME', proxyUrl: 'CLIPROXY_URL',
   managementKey: 'CLIPROXY_MGMT_KEY', clientApiKey: 'CLIPROXY_API_KEY',
+  claudeModels: 'CLIPROXY_CLAUDE_MODELS', cliEffort: 'CLIPROXY_CLI_EFFORT',
+  claudeConfigDir: 'CLAUDE_CONFIG_DIR', desktopConfigDir: 'CLIPROXY_DESKTOP_CONFIG_DIR', consoleUrl: 'CLIPROXY_CONSOLE_URL',
 } as const;
 type Source = 'env' | 'sqlite' | 'default';
 type Patch = Partial<Record<keyof ConsoleConfig, unknown>>;
@@ -35,7 +45,11 @@ export interface PublicSettings {
   hasClientApiKey: boolean;
   hasStoredClientApiKey: boolean;
   clientKeySource: 'env' | 'sqlite' | 'none';
-  sources: {displayName: Source; proxyUrl: Source};
+  sources: Record<keyof typeof ENV, Source>;
+  claudeModels: ClaudeModelOption[];
+  cliEffort: Effort;
+  claudeConfigDir: string;
+  desktopConfigDir: string;
   configFile: string;
   routingMode: 'manual';
 }
@@ -64,6 +78,21 @@ function validate(patch: Patch): Partial<ConsoleConfig> {
   }
   if (patch.routingMode !== undefined && patch.routingMode !== 'manual') invalid('Invalid routing mode');
   if (patch.routingMode !== undefined) out.routingMode = 'manual';
+  if (patch.claudeModels !== undefined) out.claudeModels = validateClaudeModels(patch.claudeModels);
+  if (patch.cliEffort !== undefined) {
+    if (!EFFORTS.includes(patch.cliEffort as Effort)) invalid('Invalid CLI effort');
+    out.cliEffort = patch.cliEffort as Effort;
+  }
+  for (const key of ['claudeConfigDir', 'desktopConfigDir'] as const) {
+    if (patch[key] === undefined) continue;
+    if (typeof patch[key] !== 'string' || !patch[key].trim()) invalid(`${key} must be a directory`);
+    out[key] = resolveUserDir(expandHome(patch[key] as string));
+  }
+  if (patch.consoleUrl !== undefined) {
+    if (typeof patch.consoleUrl !== 'string') invalid('Console URL must be a string');
+    try { out.consoleUrl = patch.consoleUrl.trim() ? consoleOrigin({CLIPROXY_CONSOLE_URL: patch.consoleUrl}) : ''; }
+    catch { invalid('Console URL must be a loopback HTTP(S) origin without credentials or a path'); }
+  }
   return out;
 }
 
@@ -79,7 +108,7 @@ export class SettingsStore {
   }
 
   get file(): string { return this.#file; }
-  get consoleUrl(): string { return consoleOrigin(this.#env); }
+  get consoleUrl(): string { return this.#resolve(this.#database(db => this.#read(db))).consoleUrl; }
 
   /** Short-lived connections avoid lingering locks; each read/update/migration is one transaction. */
   #database<T>(run: (db: DatabaseSync) => T): T {
@@ -130,9 +159,15 @@ export class SettingsStore {
     const overrides: Patch = {};
     for (const [key, name] of Object.entries(ENV)) {
       const value = this.#env[name]?.trim();
-      if (value) overrides[key as keyof typeof ENV] = value;
+      if (value) {
+        try { overrides[key as keyof typeof ENV] = key === 'claudeModels' ? JSON.parse(value) : value; }
+        catch { invalid('CLIPROXY_CLAUDE_MODELS must be a JSON model array'); }
+      }
     }
-    return {...DEFAULTS, ...stored, ...validate(overrides), routingMode: 'manual'};
+    const cfg: ConsoleConfig = {...DEFAULTS, ...stored, ...validate(overrides), routingMode: 'manual'};
+    cfg.consoleUrl ||= consoleOrigin(this.#env);
+    if (EFFORTS.indexOf(cfg.cliEffort) > EFFORTS.indexOf(cfg.claudeModels[0]!.maxEffort)) invalid('Default CLI effort exceeds the first model’s effort cap');
+    return cfg;
   }
 
   async load(): Promise<ConsoleConfig> {
@@ -144,13 +179,14 @@ export class SettingsStore {
     const cfg = this.#resolve(stored);
     const source = (key: keyof typeof ENV): Source => this.#env[ENV[key]]?.trim() ? 'env' : stored[key] ? 'sqlite' : 'default';
     return {
-      displayName: cfg.displayName, proxyUrl: cfg.proxyUrl, consoleUrl: this.consoleUrl,
+      displayName: cfg.displayName, proxyUrl: cfg.proxyUrl, consoleUrl: cfg.consoleUrl,
+      claudeModels: cfg.claudeModels, cliEffort: cfg.cliEffort, claudeConfigDir: cfg.claudeConfigDir, desktopConfigDir: cfg.desktopConfigDir,
       routingMode: 'manual', configFile: this.#file,
       hasManagementKey: !!cfg.managementKey, hasStoredManagementKey: !!stored.managementKey,
       keySource: cfg.managementKey ? source('managementKey') as 'env' | 'sqlite' : 'none',
       hasClientApiKey: !!cfg.clientApiKey, hasStoredClientApiKey: !!stored.clientApiKey,
       clientKeySource: cfg.clientApiKey ? source('clientApiKey') as 'env' | 'sqlite' : 'none',
-      sources: {displayName: source('displayName'), proxyUrl: source('proxyUrl')},
+      sources: Object.fromEntries(Object.keys(ENV).map(key => [key, source(key as keyof typeof ENV)])) as PublicSettings['sources'],
     };
   }
 
@@ -158,6 +194,7 @@ export class SettingsStore {
   async update(patch: Patch): Promise<PublicSettings> {
     const values = validate(patch);
     this.#database(db => {
+      this.#resolve({...this.#read(db),...values});
       const write = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
       for (const [key, value] of Object.entries(values)) write.run(key, JSON.stringify(value));
     });

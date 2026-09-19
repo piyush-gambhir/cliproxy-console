@@ -1,12 +1,14 @@
 import os from 'node:os';
 import path from 'node:path';
+import {readStartup} from './startup.ts';
+const startup = readStartup();
 
 export const HOME = os.homedir();
 
 /** Where the console keeps its own state. Never the proxy's auth dir or config. */
-export const CONSOLE_DIR = expandHome(process.env['CLIPROXY_DATA_DIR'] || path.join(HOME, '.cliproxy-console'));
+export const CONSOLE_DIR = startup.dataDir;
 export const CONFIG_FILE = path.join(CONSOLE_DIR, 'config.json');
-export const SETTINGS_DB = expandHome(process.env['CLIPROXY_SETTINGS_DB'] || path.join(CONSOLE_DIR, 'settings.sqlite'));
+export const SETTINGS_DB = startup.settingsDb;
 export const PROFILES_FILE = path.join(CONSOLE_DIR, 'profiles.json');
 export const RECENTS_FILE = path.join(CONSOLE_DIR, 'recent-paths.json');
 export const USAGE_FILE = path.join(CONSOLE_DIR, 'subscription-usage.json');

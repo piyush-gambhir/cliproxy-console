@@ -15,7 +15,10 @@ import time
 import urllib.request
 from urllib.parse import urlparse
 
-ROOT = Path(os.environ.get('CLIPROXY_SERVICE_DIR', str(Path(os.environ.get('CLIPROXY_DATA_DIR', str(Path.home() / '.cliproxy-console'))).expanduser() / 'proxy-service'))).expanduser().resolve()
+startup_file = Path(os.environ.get('CLIPROXY_STARTUP_FILE', str(Path.home() / '.cliproxy-console/startup.json'))).expanduser()
+startup_settings = json.loads(startup_file.read_text()) if startup_file.is_file() else {}
+startup_settings = startup_settings.get('migration', {}).get('from', startup_settings)
+ROOT = Path(os.environ.get('CLIPROXY_SERVICE_DIR', str(Path(os.environ.get('CLIPROXY_DATA_DIR') or startup_settings.get('dataDir') or str(Path.home() / '.cliproxy-console')).expanduser() / 'proxy-service'))).expanduser().resolve()
 SETTINGS_FILE = ROOT / 'service-settings.json'
 OPTIONS = json.loads(SETTINGS_FILE.read_text()) if SETTINGS_FILE.is_file() else {}
 
@@ -34,7 +37,7 @@ BREW_PREFIX = Path(option('brewPrefix', 'CLIPROXY_BREW_PREFIX', str(Path(BREW).p
 PLIST = Path.home() / 'Library' / 'LaunchAgents' / (LABEL + '.plist')
 CONFIG = Path(option('config', 'CLIPROXY_CONFIG', str(BREW_PREFIX / 'etc/cliproxyapi.conf'))).expanduser().resolve()
 REPOSITORY = option('repository', 'CLIPROXY_RELEASE_REPOSITORY', 'https://github.com/router-for-me/CLIProxyAPI')
-CONSOLE_URL = option('consoleUrl', 'CLIPROXY_CONSOLE_URL', 'http://127.0.0.1:8320').rstrip('/')
+CONSOLE_URL = option('consoleUrl', 'CLIPROXY_CONSOLE_URL', 'http://127.0.0.1:' + str(os.environ.get('PORT') or startup_settings.get('port') or 8320)).rstrip('/')
 DOMAIN = f'gui/{os.getuid()}'
 
 if not all(re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]+', label) for label in [LABEL, BREW_LABEL]):

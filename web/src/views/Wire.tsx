@@ -6,7 +6,7 @@ import {SelectField,SelectChoice,FormInput} from '@/components/controls';
 import { SubscriptionUsage } from '../components/SubscriptionUsage.tsx';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api.ts';
-import type { Profile, Targets, WirePlan } from '../types.ts';
+import type { Profile, Targets, WirePlan, ClaudeModelOption } from '../types.ts';
 import { CodeBlock, Chip, Empty, ErrorLine, Field, ManagementOffNotice, Notice } from '../components/ui.tsx';
 
 interface Props {
@@ -25,6 +25,7 @@ export function Wire({ onOpenSettings, toast }: Props) {
   const routingMode = 'manual';
   const [modelsLoading, setModelsLoading] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  const [allowedModels, setAllowedModels] = useState<ClaudeModelOption[]>([]);
   const [model, setModel] = useState('');
   const [keys, setKeys] = useState<string[]>([]);
   const [apiKey, setApiKey] = useState('');
@@ -39,6 +40,8 @@ export function Wire({ onOpenSettings, toast }: Props) {
   const [planError, setPlanError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {const refresh = () => {void Promise.all([api.settings(),api.targets()]).then(([s,t]) => {setAllowedModels(s.claudeModels);setHasConfiguredKey(s.hasClientApiKey);setTargets(t);}).catch(setLoadError);}; window.addEventListener('console-settings-saved', refresh); return () => window.removeEventListener('console-settings-saved', refresh);}, []);
+
   const profile = useMemo(() => profiles.find((p) => p.id === profileId), [profileId, profiles]);
   const prefix = profile?.lastKnownPrefix ?? '';
   const sentModel = profile?.authFile.startsWith('claude-') ? model : prefix && !model.startsWith(`${prefix}/`) ? `${prefix}/${model}` : model;
@@ -47,7 +50,7 @@ export function Wire({ onOpenSettings, toast }: Props) {
     void (async () => {
       try {
         const [profileRes, settings, targetRes] = await Promise.all([api.profiles(), api.settings(), api.targets()]);
-        setHasConfiguredKey(settings.hasClientApiKey);
+        setHasConfiguredKey(settings.hasClientApiKey); setAllowedModels(settings.claudeModels);
         const keyRes = settings.hasClientApiKey ? {'api-keys': []} : await api.apiKeys();
         setProfiles(profileRes.profiles);
 
@@ -73,14 +76,14 @@ export function Wire({ onOpenSettings, toast }: Props) {
     setModel(''); setModels([]); setPlan(null); setSnippet('');
     if (!profile) { setModelsLoading(false); return; }
     setModelsLoading(true);
-    const request = api.authFileModels(profile!.authFile).then(res => res.models.map(m => m.id).filter(id => prefix && id.startsWith(`${prefix}/`)).map(id => profile.authFile.startsWith('claude-') ? id.slice(prefix.length+1) : id).filter(id => !profile.authFile.startsWith('claude-') || ['claude-opus-5','claude-fable-5-1'].includes(id)));
+    const request = api.authFileModels(profile!.authFile).then(res => res.models.map(m => m.id).filter(id => prefix && id.startsWith(`${prefix}/`)).map(id => profile.authFile.startsWith('claude-') ? id.slice(prefix.length+1) : id).filter(id => !profile.authFile.startsWith('claude-') || allowedModels.some(option => option.id === id)));
     request.then(ids => {
       if (!live) return;
       setModels(ids); setModel(ids[0] ?? ''); setLoadError(null);
     }).catch(err => { if (live) setLoadError(err); })
       .finally(() => { if (live) setModelsLoading(false); });
     return () => { live = false; };
-  }, [profile, routingMode, prefix]);
+  }, [profile, routingMode, prefix, allowedModels]);
 
   // Default the directory when the target kind changes.
   useEffect(() => {

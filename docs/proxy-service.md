@@ -79,3 +79,10 @@ not modify your shell startup files.
 The console must be running with a working management key, and a local Claude
 Desktop Gateway configuration must exist for the installer’s Desktop-state check.
 The helper never uploads configuration backups or credentials to GitHub.
+
+The console exposes these helper options under **Settings → Server, storage and
+service settings**. Saving them updates the local JSON file only; run the installer
+or updater to apply changed labels or paths to an installed service. Environment
+overrides remain authoritative and are shown as locked fields. The helper and
+launcher read the console's startup JSON for its data directory and fallback port,
+using the running source location while a storage move is pending.

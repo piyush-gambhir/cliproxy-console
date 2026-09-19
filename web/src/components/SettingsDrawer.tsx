@@ -1,8 +1,11 @@
 import {Button} from './ui/button';
-import {FormInput} from './controls';
+import {DeploymentSettings} from './DeploymentSettings';
+import {FormInput, SelectField, SelectChoice} from './controls';
+import {Card} from './ui/card';
+import {Collapsible, CollapsibleTrigger, CollapsibleContent} from './ui/collapsible';
 import { useCallback, useState } from 'react';
 import { api } from '../api.ts';
-import type { Settings } from '../types.ts';
+import type { Settings, ClaudeModelOption } from '../types.ts';
 import { Drawer, ErrorLine, Field, Notice } from './ui.tsx';
 
 export function SettingsDrawer({
@@ -16,6 +19,11 @@ export function SettingsDrawer({
 }) {
   const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl);
   const [displayName, setDisplayName] = useState(settings.displayName);
+  const [models, setModels] = useState(settings.claudeModels);
+  const [cliEffort, setCliEffort] = useState(settings.cliEffort);
+  const [consoleUrl, setConsoleUrl] = useState(settings.consoleUrl);
+  const [claudeConfigDir, setClaudeConfigDir] = useState(settings.claudeConfigDir);
+  const [desktopConfigDir, setDesktopConfigDir] = useState(settings.desktopConfigDir);
   const [key, setKey] = useState('');
   const [clientKey, setClientKey] = useState('');
   const [error, setError] = useState<unknown>(null);
@@ -25,7 +33,12 @@ export function SettingsDrawer({
     setBusy(true);
     setError(null);
     try {
-      const patch: { displayName?: string; proxyUrl?: string; managementKey?: string; clientApiKey?: string } = {};
+      const patch: Parameters<typeof api.saveSettings>[0] = {};
+      if (JSON.stringify(models) !== JSON.stringify(settings.claudeModels)) patch.claudeModels = models;
+      if (cliEffort !== settings.cliEffort) patch.cliEffort = cliEffort;
+      if (consoleUrl !== settings.consoleUrl) patch.consoleUrl = consoleUrl;
+      if (claudeConfigDir !== settings.claudeConfigDir) patch.claudeConfigDir = claudeConfigDir;
+      if (desktopConfigDir !== settings.desktopConfigDir) patch.desktopConfigDir = desktopConfigDir;
       if (displayName.trim() !== settings.displayName) patch.displayName = displayName.trim();
       if (proxyUrl.trim() !== settings.proxyUrl) patch.proxyUrl = proxyUrl.trim();
       if (clientKey !== '') patch.clientApiKey = clientKey;
@@ -36,7 +49,7 @@ export function SettingsDrawer({
     } finally {
       setBusy(false);
     }
-  }, [key, clientKey, settings, onSaved, proxyUrl, displayName]);
+  }, [key, clientKey, settings, onSaved, proxyUrl, displayName, models, cliEffort, consoleUrl, claudeConfigDir, desktopConfigDir]);
 
   const clearKey = useCallback(async (field: 'managementKey' | 'clientApiKey') => {
     setBusy(true);
@@ -113,6 +126,36 @@ export function SettingsDrawer({
         <Button className="btn sm danger" disabled={busy} onClick={() => void clearKey('clientApiKey')}>Clear stored client key</Button>
       </div>}
 
+      <Collapsible className="settings-section" defaultOpen>
+        <CollapsibleTrigger asChild><Button variant="secondary">Allowed Claude models · 1M</Button></CollapsibleTrigger>
+        <CollapsibleContent className="settings-fields">
+          <p className="microcopy">Only add models whose provider supports 1M context. The first model is the default CLI choice. After changing this list, apply the chosen models in Claude setup to update Desktop.</p>
+          {settings.sources.claudeModels === 'env' && <p className="microcopy">Controlled by CLIPROXY_CLAUDE_MODELS.</p>}
+          {models.map((model, index) => <Card className="settings-model" key={index}>
+            <Field label={`Model ${index + 1} ID`}><FormInput className="mono" disabled={settings.sources.claudeModels === 'env'} value={model.id} onChange={e => setModels(current => current.map((m,i) => i === index ? {...m,id:e.target.value} : m))}/></Field>
+            <Field label={`Model ${index + 1} label`}><FormInput disabled={settings.sources.claudeModels === 'env'} value={model.label} onChange={e => setModels(current => current.map((m,i) => i === index ? {...m,label:e.target.value} : m))}/></Field>
+            <Field label={`Model ${index + 1} effort cap`}><SelectField disabled={settings.sources.claudeModels === 'env'} value={model.maxEffort} onChange={e => setModels(current => current.map((m,i) => i === index ? {...m,maxEffort:e.target.value as ClaudeModelOption['maxEffort']} : m))}>{['low','medium','high','xhigh','max'].map(value => <SelectChoice key={value} value={value}>{value}</SelectChoice>)}</SelectField></Field>
+            <div className="row wrap"><span className="microcopy">1M context{index === 0 ? ' · CLI default' : ''}</span>
+              {index > 0 && <Button size="sm" variant="secondary" disabled={settings.sources.claudeModels === 'env'} onClick={() => setModels(current => [model,...current.filter((_,i) => i !== index)])}>Make default</Button>}
+              <Button size="sm" variant="ghost" disabled={models.length === 1 || settings.sources.claudeModels === 'env'} onClick={() => setModels(current => current.filter((_,i) => i !== index))}>Remove model {index + 1}</Button>
+            </div>
+          </Card>)}
+          <Button variant="secondary" disabled={settings.sources.claudeModels === 'env'} onClick={() => setModels(current => [...current,{id:'',label:'',contextWindow:1000000,maxEffort:'max'}])}>Add 1M model</Button>
+          <Field label="Default CLI reasoning effort"><SelectField value={cliEffort} disabled={settings.sources.cliEffort === 'env'} onChange={e => setCliEffort(e.target.value as Settings['cliEffort'])}>{['low','medium','high','xhigh','max'].map(value => <SelectChoice key={value} value={value}>{value}</SelectChoice>)}</SelectField></Field>
+          <Notice tone="plain" title="Claude Desktop controls its own picker"><p>The console lists only 1M models and defaults clients to 1M. Claude Desktop also creates a standard-context row internally; its supported settings cannot hide that row. Existing sessions may need the 1M variant selected once.</p></Notice>
+        </CollapsibleContent>
+      </Collapsible>
+      <Collapsible className="settings-section">
+        <CollapsibleTrigger asChild><Button variant="secondary">Client connections and folders</Button></CollapsibleTrigger>
+        <CollapsibleContent className="settings-fields">
+          <Field label="Console URL for clients" hint="Used in generated client routes. Must point to this console on a loopback address. Reapply client setup after changing it."><FormInput className="mono" disabled={settings.sources.consoleUrl === 'env'} value={consoleUrl} onChange={e => setConsoleUrl(e.target.value)}/></Field>
+          <Field label="Claude CLI configuration folder" hint="Shared local profile. Choosing another folder does not move conversation history."><FormInput className="mono" disabled={settings.sources.claudeConfigDir === 'env'} value={claudeConfigDir} onChange={e => setClaudeConfigDir(e.target.value)}/></Field>
+          <Field label="Claude Desktop configuration folder" hint="Select the existing configLibrary directory containing _meta.json."><FormInput className="mono" disabled={settings.sources.desktopConfigDir === 'env'} value={desktopConfigDir} onChange={e => setDesktopConfigDir(e.target.value)}/></Field>
+          <p className="microcopy">Fields controlled by the server environment are locked. Desktop and CLI model, subscription, effort, and permission defaults are managed in Claude setup. Proxy routing is managed in Request settings.</p>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <DeploymentSettings/>
       <Notice tone="plain" title="Local SQLite database">
         <p className="muted mono">{settings.configFile}</p>
         <p className="muted">

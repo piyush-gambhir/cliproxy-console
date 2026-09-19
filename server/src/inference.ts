@@ -3,16 +3,16 @@ import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import type {MgmtClient} from './mgmt.ts';
 import type {ProfileStore} from './profiles.ts';
-import {resolveSelection, readRouting} from './routing.ts';
+import {resolveSelection, readRouting, accountModels} from './routing.ts';
 import {sendJson} from './http.ts';
 import {WireError} from './wire.ts';
 import {consoleOrigin} from './runtime.ts';
 
-export const CLAUDE_MODELS = ['claude-opus-5', 'claude-fable-5-1'] as const;
+import {DEFAULT_CLAUDE_MODELS, type ClaudeModelOption} from './model-config.ts';
 export function subscriptionUrl(profile: string, origin = consoleOrigin()) {
   return `${origin}/inference/${encodeURIComponent(profile)}`;
 }
-export async function relayInference(req: IncomingMessage, res: ServerResponse, profile: string, endpoint: string, proxyUrl: string, mgmt: MgmtClient, profiles: ProfileStore) {
+export async function relayInference(req: IncomingMessage, res: ServerResponse, profile: string, endpoint: string, proxyUrl: string, mgmt: MgmtClient, profiles: ProfileStore, models: ClaudeModelOption[] = DEFAULT_CLAUDE_MODELS) {
   const listModels = req.method === 'GET' && endpoint === '/v1/models';
   if (!listModels && (req.method !== 'POST' || !['/v1/messages', '/v1/messages/count_tokens'].includes(endpoint))) throw new WireError('Unsupported inference endpoint', 404);
   if (!req.headers.authorization && !req.headers['x-api-key']) throw new WireError('A proxy client key is required', 401);
@@ -25,11 +25,13 @@ export async function relayInference(req: IncomingMessage, res: ServerResponse, 
     if (!upstream.ok) {res.writeHead(upstream.status,{'content-type':'application/json'});res.end(await upstream.text());return;}
     const selected = await profiles.get(profile);
     if (!selected.authFile.startsWith('claude-')) throw new WireError('Choose a Claude subscription');
+    const registered = new Set(await accountModels(mgmt, selected.authFile));
     const data = [];
-    for (const model of CLAUDE_MODELS) {
-      await resolveSelection(mgmt,profiles,{profile,model});
-      data.push({id:model,type:'model',object:'model',display_name:model,supports_1m:true,max_input_tokens:1_000_000});
+    for (const model of models.filter(model => registered.has(`${selected.lastKnownPrefix}/${model.id}`))) {
+      await resolveSelection(mgmt,profiles,{profile,model:model.id});
+      data.push({id:model.id,type:'model',object:'model',display_name:`${model.label} · 1M`,supports_1m:true,max_input_tokens:1_000_000});
     }
+    if (!data.length) throw new WireError('No configured 1M models are registered for this subscription',409);
     return sendJson(res,200,{object:'list',data,has_more:false,first_id:data[0]?.id,last_id:data.at(-1)?.id});
   }
   const chunks: Buffer[] = []; let size = 0;
@@ -41,7 +43,7 @@ export async function relayInference(req: IncomingMessage, res: ServerResponse, 
   let body: Record<string, unknown>;
   try {body = JSON.parse(Buffer.concat(chunks).toString('utf8'));} catch {throw new WireError('Invalid JSON');}
   if (body && typeof body.model === 'string') body.model = body.model.replace(/\[1m\]$/i, '');
-  if (!body || !CLAUDE_MODELS.includes(body.model as typeof CLAUDE_MODELS[number])) throw new WireError('Choose claude-opus-5 or claude-fable-5-1 using its official model ID');
+  if (!body || !models.some(model => model.id === body.model)) throw new WireError('Choose a configured 1M Claude model using its official model ID');
   const routing = await readRouting(mgmt);
   if (!routing.forceModelPrefix || routing.switchProject || routing.switchPreviewModel || routing.requestRetry !== 0) throw new WireError('Strict account routing must be enabled and automatic fallback/retries disabled', 409);
   const selected = await profiles.get(profile);
@@ -51,6 +53,10 @@ export async function relayInference(req: IncomingMessage, res: ServerResponse, 
   for (const name of ['authorization','x-api-key','anthropic-version','anthropic-beta','user-agent','x-app']) {
     const value = req.headers[name]; if (typeof value === 'string') headers.set(name, value);
   }
+  // Claude strips [1m] from wire IDs; request the configured 1M capability explicitly.
+  const betas = new Set((headers.get('anthropic-beta') || '').split(',').map(v => v.trim()).filter(Boolean));
+  betas.add('context-1m-2025-08-07');
+  headers.set('anthropic-beta', [...betas].join(','));
   const controller = new AbortController();
   const cancel = () => controller.abort(); res.once('close', cancel);
   try {

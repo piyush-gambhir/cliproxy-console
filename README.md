@@ -95,15 +95,26 @@ not enabled by changing Claude's permission or reasoning mode.
 
 ### Models and client capabilities
 
-The scoped Claude gateway currently allows `claude-opus-5` and `claude-fable-5-1`.
-Its catalog advertises a 1M context preference. These are configured capabilities,
+The scoped Claude gateway defaults to `claude-opus-5` and `claude-fable-5-1`.
+Edit **Settings → Allowed Claude models · 1M** to add/remove official model IDs,
+change labels, reorder the CLI default, and set effort caps. The console accepts
+only 1M model entries, advertises their 1M capability, and sends the 1M beta header
+on inference requests. Canonical provider IDs stay unchanged on the wire. These are configured capabilities,
 not live entitlement checks: model access, accepted context size, effort levels,
 Auto mode, Ultracode, and Fast mode depend on the provider and installed client.
 A model appearing in the picker does not prove that your account can run it.
 
-The general Advanced connections screen uses the selected account's registered
-model list. To change the scoped Claude allowlist, update
-`server/src/inference.ts` and `web/src/views/Desktop.tsx` together and run the tests.
+Desktop, CLI commands, Advanced connections, model discovery, and the inference
+allowlist all read the same saved model configuration. Account registration is
+checked separately; adding a model here does not grant access to it.
+
+Claude Desktop's supported configuration cannot hide its internally generated
+standard-context row. It normalizes a `[1m]` entry into a base model plus a 1M
+variant. Applying setup sets `supports1m`, `prefer1m`, `modelPrefer1mContext`, and
+disables discovery so only your chosen model families appear. New sessions use
+the configured default; existing sessions may require choosing the 1M row once.
+The console does not patch the installed Claude app or claim the standard row is
+hidden. See [Anthropic's context configuration](https://code.claude.com/docs/en/model-config#extended-context).
 The console does not enable paid provider features or change billing settings.
 
 ## Configuration and local data
@@ -114,7 +125,8 @@ See [SECURITY.md](SECURITY.md) for the trust boundary and private reporting.
 
 | Setting or data | Location |
 | --- | --- |
-| Console name, proxy URL, management key, optional client key | `~/.cliproxy-console/settings.sqlite` |
+| Console connection, keys, models, effort defaults, client folder settings | `~/.cliproxy-console/settings.sqlite` |
+| Startup port and storage-location plan | `~/.cliproxy-console/startup.json` (fixed bootstrap location) |
 | Profile names, account mapping, prefix records, notes | `~/.cliproxy-console/profiles.json` |
 | Normalized usage snapshots | `~/.cliproxy-console/subscription-usage.json` |
 | Recent project paths | `~/.cliproxy-console/recent-paths.json` |
@@ -137,13 +149,37 @@ stored key** buttons make this distinction explicit.
 | `CLIPROXY_URL` | Proxy base URL; default `http://127.0.0.1:8317` |
 | `CLIPROXY_MGMT_KEY` | Proxy management key; unset by default |
 | `CLIPROXY_API_KEY` | Optional proxy client key for model discovery and client setup |
-| `CLIPROXY_DATA_DIR` | Console runtime directory; default `~/.cliproxy-console` |
-| `CLIPROXY_SETTINGS_DB` | SQLite file; default `<data directory>/settings.sqlite` |
-| `PORT` | Local API port; default `8320` |
+| `CLIPROXY_DATA_DIR` | Override the saved startup data directory; default `~/.cliproxy-console` |
+| `CLIPROXY_SETTINGS_DB` | Override the saved SQLite path; default `<data directory>/settings.sqlite` |
+| `PORT` | Override the saved startup API port; default `8320` |
+| `CLIPROXY_STARTUP_FILE` | Bootstrap file location; default `~/.cliproxy-console/startup.json` |
+| `CLIPROXY_CLAUDE_MODELS` | Override the frontend model list with a JSON array of `{id,label,contextWindow:1000000,maxEffort}` |
+| `CLIPROXY_CLI_EFFORT` | Override the saved default CLI effort |
 | `CLIPROXY_CONSOLE_URL` | Client-facing loopback origin; default `http://127.0.0.1:<PORT>` |
 | `CLIPROXY_DESKTOP_CONFIG_DIR` | Override the Desktop `configLibrary` directory |
 | `CLAUDE_CONFIG_DIR` | Shared Claude CLI config directory; default `~/.claude` |
 | `CLIPROXY_AUTH_DIR`, `CLIPROXY_CONFIG` | Additional proxy credential paths protected from client-setup writes |
+
+**Frontend controls:** Settings includes connection/branding, write-only keys,
+allowed 1M models, default CLI effort, client-facing console URL, and existing
+Claude configuration folders. Subscription selection and Desktop behavior remain
+in **Claude setup**; account notes and reset dates are in **Subscriptions & usage**;
+manual routing is in **Request settings**.
+
+Expand **Server, storage and service settings** for the local server port, data
+directory, SQLite location, and optional macOS service-helper configuration. These
+have explicit save buttons. Port/storage changes are staged until restart; the
+running instance keeps its original addresses and files. On restart, a storage
+relocation copies the data into a new directory, retains the original as a backup,
+and refuses to overwrite an existing destination. Cancel pending changes before
+restart from the same panel. Restart the console using your normal launcher or
+service manager, then reapply client connections if the URL changed.
+
+Service-helper changes apply at the next install/update, not to an already running
+LaunchAgent. Environment overrides are displayed and locked in the frontend;
+remove them from the process environment to let frontend values take precedence.
+The bootstrap-file location itself is a launcher setting, since the server needs
+to find it before it can read any saved configuration.
 
 See [.env.example](.env.example) for a template. Set variables in the process
 environment; `.env` files are **not loaded automatically**. The console process and

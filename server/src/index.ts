@@ -7,9 +7,13 @@ import { SettingsStore } from './settings.ts';
 import { ProfileStore } from './profiles.ts';
 import { MgmtClient } from './mgmt.ts';
 import {USAGE_FILE} from './paths.ts';
+import {ServiceSettingsStore} from './service-settings.ts';
+import {prepareStartup, StartupStore} from './startup.ts';
 
 import {consolePort} from './runtime.ts';
 
+prepareStartup();
+const startup = new StartupStore();
 const PORT = consolePort();
 const HOST = '127.0.0.1'; // localhost only, by design — the console has no auth of its own
 
@@ -26,6 +30,8 @@ const app = createApp({
   mgmt: new MgmtClient(settings),
   webDist,
   usageFile: USAGE_FILE,
+  startup,
+  serviceSettings: new ServiceSettingsStore(),
 });
 
 const server = http.createServer((req, res) => {

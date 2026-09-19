@@ -467,3 +467,8 @@ p {margin:10px 0;color:var(--text-2)}
 .model-choice > label > .chip {display:inline-flex;flex:none}
 .account-choice [data-slot="radio-group-item"]:not([data-state="checked"]) {background:var(--text-3);opacity:.45}
 @media(max-width:640px){.shell{grid-template-rows:auto 1fr}.nav{width:100%;max-width:100%}.topbar{min-height:64px}}
+
+.settings-section { margin-top: 1.25rem; }
+.settings-fields { display: grid; gap: 1rem; padding-top: 1rem; }
+.settings-model { padding: 1rem; min-width: 0; }
+.settings-model .field:last-child { margin-bottom: 0; }

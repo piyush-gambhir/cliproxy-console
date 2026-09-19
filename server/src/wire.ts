@@ -5,7 +5,7 @@ import {writeJsonFile} from './json-store.ts';
 
 export type WireTarget = 'project' | 'profile-global';
 
-export const MODEL_DEFAULT_KEYS = ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL'] as const;
+export const MODEL_DEFAULT_KEYS = ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_FABLE_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL'] as const;
 
 export interface WireEnv {
   [key: string]: string;
@@ -92,6 +92,7 @@ export function buildEnv(input: WireInput): WireEnv {
     ANTHROPIC_BASE_URL: input.proxyUrl.trim().replace(/\/+$/, ''),
     ANTHROPIC_AUTH_TOKEN: input.apiKey.trim(),
     ANTHROPIC_MODEL: addressableModel(input.model, input.prefix),
+    ...(input.model.endsWith('[1m]') ? {CLAUDE_CODE_DISABLE_1M_CONTEXT:'0'} : {}),
     ...(input.pinModelDefaults ? Object.fromEntries(MODEL_DEFAULT_KEYS.map(key => [key, addressableModel(input.model, input.prefix)])) : {}),
   };
 }
@@ -188,6 +189,7 @@ export function zshSnippet(opts: {
     `  ANTHROPIC_BASE_URL=${quote(base)} \\`,
     '  ANTHROPIC_AUTH_TOKEN="${CLIPROXY_API_KEY:?Set CLIPROXY_API_KEY to a proxy client key first}" \\',
     `  ANTHROPIC_MODEL=${quote(model)} \\`,
+    ...(model.endsWith('[1m]') ? ['  CLAUDE_CODE_DISABLE_1M_CONTEXT=0 \\'] : []),
     ...(opts.pinModelDefaults ? MODEL_DEFAULT_KEYS.map(key => `  ${key}=${quote(model)} \\`) : []),
     `  claude "$@"`,
     `}`,

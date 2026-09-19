@@ -33,3 +33,5 @@ recent-paths.json
 
 *.migrated
 *.db-*
+
+/startup.json

@@ -125,7 +125,7 @@ export function App() {
               toast={toast}
             />
           ) : screen === 'desktop' ? (
-            <Desktop />
+            <Desktop onOpenSettings={() => setShowSettings(true)} />
           ) : screen === 'routing' ? (
             <RoutingSettings toast={toast} />
           ) : (
@@ -141,6 +141,7 @@ export function App() {
           onSaved={(next) => {
             setSettings(next);
             setShowSettings(false);
+            window.dispatchEvent(new Event('console-settings-saved'));
             toast('ok', 'Settings saved');
           }}
         />

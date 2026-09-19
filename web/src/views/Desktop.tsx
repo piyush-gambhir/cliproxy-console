@@ -9,21 +9,17 @@ import {SelectField, SelectChoice, FormInput} from '@/components/controls';
 import {Chip, CodeBlock, Field, Notice} from '@/components/ui';
 import {SubscriptionUsage} from '@/components/SubscriptionUsage';
 import {api, accountStatus} from '../api';
-import type {AuthFile, Profile} from '../types';
+import type {AuthFile, Profile, ClaudeModelOption} from '../types';
 import {claudeCommand} from '../lib/claude-command';
 
 interface Model {name: string; labelOverride: string; maxEffort?: string; supports1m?: boolean; prefer1m?: boolean}
-interface State {consoleUrl: string; profile: string; autoMode: boolean; models: (Model|string)[]; defaultEffort: string; alwaysDefault: boolean; gatewayUrl: string; catalog: {profile: Profile; models: string[]; error?: string}[]}
-const MODELS = [
-  {name:'claude-opus-5', label:'Claude Opus 5', alias:'opus', description:'Deep reasoning and complex coding'},
-  {name:'claude-fable-5-1', label:'Claude Fable 5.1', alias:'fable', description:'An alternative for demanding work'},
-];
+interface State {claudeConfigDir: string; allowedModels: ClaudeModelOption[]; cliEffort: string; setupRequired?: boolean; oneMillionConfigured?: boolean; consoleUrl: string; profile: string; autoMode: boolean; models: (Model|string)[]; defaultEffort: string; alwaysDefault: boolean; gatewayUrl: string; catalog: {profile: Profile; models: string[]; error?: string}[]}
 const EFFORTS = ['low','medium','high','xhigh','max'];
 const EFFORT_LABELS = ['Low','Medium','High','Extra high','Max'];
 function configModels(data: State): Model[] {
   return data.models.map(m => typeof m === 'string' ? {name:m,labelOverride:m} : m)
-    .filter(m => MODELS.some(option => option.name === m.name))
-    .map(m => ({...m,supports1m:true,prefer1m:true}));
+    .filter(m => data.allowedModels.some(option => option.id === m.name))
+    .map(m => {const option=data.allowedModels.find(o=>o.id===m.name)!;return {...m,maxEffort:!m.maxEffort || EFFORTS.indexOf(m.maxEffort)>EFFORTS.indexOf(option.maxEffort) ? option.maxEffort : m.maxEffort,supports1m:true,prefer1m:true};});
 }
 async function call(method = 'GET', body?: unknown) {
   const res = await fetch('/api/desktop', {method, headers:{'Content-Type':'application/json'}, ...(body ? {body:JSON.stringify(body)} : {})});
@@ -33,7 +29,7 @@ async function call(method = 'GET', body?: unknown) {
 }
 function requestedProfile() {return new URLSearchParams(window.location.hash.split('?')[1]).get('profile');}
 
-export function Desktop() {
+export function Desktop({onOpenSettings}: {onOpenSettings: () => void}) {
   const [state, setState] = useState<State|null>(null);
   const [files, setFiles] = useState<AuthFile[]|null>(null);
   const [models, setModels] = useState<Model[]>([]);
@@ -46,7 +42,7 @@ export function Desktop() {
   const [saved, setSaved] = useState(false);
   const [backup, setBackup] = useState('');
   const [client, setClient] = useState('desktop');
-  const [cliModel, setCliModel] = useState(MODELS[0]!.name);
+  const [cliModel, setCliModel] = useState('');
   const [cliEffort, setCliEffort] = useState('high');
   const [fastInfo, setFastInfo] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -56,6 +52,8 @@ export function Desktop() {
     try {
       const data: State = await call();
       setState(data); setModels(configModels(data));
+      setCliModel(current => data.allowedModels.some(m => m.id === current) ? current : data.allowedModels[0]?.id ?? '');
+      setCliEffort(data.cliEffort);
       const requested = requestedProfile();
       setProfile(requested && data.catalog.some(c => c.profile.id === requested && c.profile.authFile.startsWith('claude-')) ? requested : data.profile);
       setAutoMode(data.autoMode); setEffort(data.defaultEffort); setAlways(data.alwaysDefault);
@@ -63,7 +61,7 @@ export function Desktop() {
       setSaved(false);
     } catch(e) {setError((e as Error).message);} finally {setBusy(false);}
   }
-  useEffect(() => {void load();}, []);
+  useEffect(() => {void load(); const refresh = () => {void load();}; window.addEventListener('console-settings-saved', refresh); return () => window.removeEventListener('console-settings-saved', refresh);}, []);
   useEffect(() => {
     const selectFromLink = () => {
       const requested = requestedProfile();
@@ -75,6 +73,7 @@ export function Desktop() {
     return () => window.removeEventListener('hashchange',selectFromLink);
   },[state]);
 
+  const MODELS = (state?.allowedModels ?? []).map(m => ({...m, name:m.id, description:'1M context', alias:m.id}));
   const catalog = state?.catalog.filter(c => c.profile.authFile.startsWith('claude-')) ?? [];
   const selected = catalog.find(c => c.profile.id === profile);
   const selectedFile = files?.find(f => f.name === selected?.profile.authFile);
@@ -82,14 +81,16 @@ export function Desktop() {
   const serves = (name: string) => selected?.models.includes(`${selected.profile.lastKnownPrefix}/${name}`) === true;
   const unavailable = !selected ? 'Choose a subscription to continue.' : selected.error ? selected.error : files !== null && (!selectedFile || selectedFile.disabled || selectedFile.status === 'disabled') ? 'This subscription is missing or disabled. Enable it in Subscriptions.' : '';
   const modelError = !models.length ? 'Choose at least one model.' : models.some(m => !serves(m.name)) ? 'A selected model is not registered on this subscription. Choose another model or refresh its account.' : '';
-  const cap = models[0]?.maxEffort;
+  const cliCap = MODELS.find(m => m.id === cliModel)?.maxEffort || 'max';
+  const cliEffortError = EFFORTS.indexOf(cliEffort === 'ultracode' ? 'xhigh' : cliEffort) > EFFORTS.indexOf(cliCap);
+  const cap = models[0]?.maxEffort || MODELS.find(m => m.id === models[0]?.name)?.maxEffort;
   const effortError = effort && cap && EFFORTS.indexOf(effort) > EFFORTS.indexOf(cap) ? 'Starting effort exceeds the default model’s effort cap. Adjust it in Advanced options.' : '';
   const draft = {profile,autoMode,models,defaultEffort:effort,alwaysDefault:always};
   const normalize = (items: (Model|string)[]) => items.map(entry => {const m = typeof entry === 'string' ? {name:entry,labelOverride:entry} : entry;return [m.name,m.labelOverride,m.maxEffort || '',m.supports1m === true,m.prefer1m === true];});
-  const dirty = state && (profile !== state.profile || autoMode !== state.autoMode || effort !== state.defaultEffort || always !== state.alwaysDefault || JSON.stringify(normalize(models)) !== JSON.stringify(normalize(state.models)));
+  const dirty = state && (!state.oneMillionConfigured || profile !== state.profile || autoMode !== state.autoMode || effort !== state.defaultEffort || always !== state.alwaysDefault || JSON.stringify(normalize(models)) !== JSON.stringify(normalize(state.models)));
   const labelError = models.some(m => !m.labelOverride.trim() || m.labelOverride.length > 200) ? 'Each model needs a display label of 1–200 characters.' : '';
-  const canSave = Boolean(state && dirty && !busy && !unavailable && !modelError && !effortError && !labelError);
-  const cliCommand = state && selected && serves(cliModel) && !unavailable ? claudeCommand(selected.profile.id, cliModel, cliEffort, state.consoleUrl) : '';
+  const canSave = Boolean(state && !state.setupRequired && dirty && !busy && !unavailable && !modelError && !effortError && !labelError);
+  const cliCommand = state && selected && serves(cliModel) && !unavailable && !cliEffortError ? claudeCommand(selected.profile.id, cliModel, cliEffort, state.consoleUrl, state.claudeConfigDir) : '';
   const selectedModelLabel = MODELS.find(m => m.name === models[0]?.name)?.label ?? 'No model';
 
   function edit() {setSaved(false);}
@@ -145,15 +146,17 @@ export function Desktop() {
         </section>
 
         <section className="setup-section" aria-labelledby="model-heading">
-          <div className="setup-section-head"><span className="step-number">2</span><div><h2 id="model-heading">{client === 'desktop' ? 'Models & default' : 'Starting model'}</h2><p>Official Anthropic IDs. 1M context configured for both models.</p></div></div>
+          <div className="setup-section-head"><span className="step-number">2</span><div><h2 id="model-heading">{client === 'desktop' ? 'Models & default' : 'Starting model'}</h2><p>Only models configured for 1M context are listed here.</p></div></div>
           {client === 'desktop' ? <div className="model-choices">{MODELS.map(option => {
             const model = models.find(m => m.name === option.name);
             return <Card className={`model-choice ${model ? 'is-selected' : ''}`} key={option.name}>
-              <Label htmlFor={`allow-${option.name}`}><FormInput id={`allow-${option.name}`} type="checkbox" checked={Boolean(model)} disabled={busy} onChange={e => {edit();setModels(prev => e.target.checked ? [...prev,{name:option.name,labelOverride:option.label,maxEffort:'max',supports1m:true,prefer1m:true}] : prev.filter(m => m.name !== option.name));}}/><span><strong>{option.label}</strong><small>{option.description}</small></span><Chip>1M</Chip></Label>
+              <Label htmlFor={`allow-${option.name}`}><FormInput id={`allow-${option.name}`} type="checkbox" checked={Boolean(model)} disabled={busy} onChange={e => {edit();setModels(prev => e.target.checked ? [...prev,{name:option.name,labelOverride:option.label,maxEffort:option.maxEffort,supports1m:true,prefer1m:true}] : prev.filter(m => m.name !== option.name));}}/><span><strong>{option.label}</strong><small>{option.description}</small></span><Chip>1M</Chip></Label>
               <div className="row wrap"><code>{option.name}</code>{selected && !serves(option.name) && <Chip tone="warn">Not registered</Chip>}</div>
               {model && (models[0]?.name === option.name ? <span className="default-marker"><Check size={14}/> Default for new sessions</span> : <Button size="sm" variant="secondary" disabled={busy} onClick={() => {edit();setModels(prev => [model,...prev.filter(m => m.name !== model.name)]);}}>Make default</Button>)}
             </Card>;
-          })}</div> : <Field label="CLI model"><SelectField value={cliModel} onChange={e => setCliModel(e.target.value)}>{MODELS.map(m => <SelectChoice key={m.name} value={m.name}>{m.label} · 1M</SelectChoice>)}</SelectField></Field>}
+          })}</div> : <Field label="CLI model"><SelectField value={cliModel} onChange={e => {setCliModel(e.target.value); const cap=MODELS.find(m=>m.id===e.target.value)?.maxEffort || 'max'; if(EFFORTS.indexOf(cliEffort==='ultracode'?'xhigh':cliEffort)>EFFORTS.indexOf(cap)) setCliEffort(cap);}}>{MODELS.map(m => <SelectChoice key={m.name} value={m.name}>{m.label} · 1M</SelectChoice>)}</SelectField></Field>}
+          <Button variant="secondary" onClick={onOpenSettings}>Manage allowed models</Button>
+          {state?.setupRequired && client === 'desktop' && <Notice tone="warn" title="Desktop gateway setup needed"><p>Configure a Gateway in Claude Desktop first, or select its configuration folder in Settings. You can use the CLI tab now.</p></Notice>}
           {client === 'desktop' && <p className="microcopy">Desktop can still show its standard-context alternative. Its supported gateway settings cannot hide that variant. Explicit model choices in existing sessions take precedence.</p>}
           {client === 'desktop' && modelError && state && <p className="inline-err" role="alert">{modelError}</p>}
         </section>
@@ -163,8 +166,8 @@ export function Desktop() {
           <Field label={client === 'desktop' ? 'Starting reasoning effort' : 'CLI reasoning effort'} hint="Higher effort allows more reasoning and can use more of your allowance.">
             <SelectField value={client === 'desktop' ? effort : cliEffort} onChange={e => {if(client === 'desktop') {setEffort(e.target.value);edit();} else setCliEffort(e.target.value);}} disabled={busy}>
               {client === 'desktop' && <SelectChoice value="">Model default</SelectChoice>}
-              {EFFORTS.map((v,i) => <SelectChoice key={v} value={v}>{EFFORT_LABELS[i]}</SelectChoice>)}
-              {client === 'cli' && <SelectChoice value="ultracode">Ultracode · xhigh + workflows</SelectChoice>}
+              {EFFORTS.map((v,i) => <SelectChoice key={v} value={v} disabled={client === 'cli' && i > EFFORTS.indexOf(cliCap)}>{EFFORT_LABELS[i]}</SelectChoice>)}
+              {client === 'cli' && <SelectChoice value="ultracode" disabled={EFFORTS.indexOf(cliCap) < EFFORTS.indexOf('xhigh')}>Ultracode · xhigh + workflows</SelectChoice>}
             </SelectField>
           </Field>
           {labelError && client === 'desktop' && <p className="inline-err" role="alert">{labelError}</p>}
@@ -187,7 +190,7 @@ export function Desktop() {
             <a href="https://code.claude.com/docs/en/fast-mode#use-fast-mode-behind-proxies-and-llm-gateways" target="_blank" rel="noreferrer">Read Anthropic’s gateway and billing requirements ↗</a>
           </Card>}
           <Collapsible open={advanced} onOpenChange={setAdvanced} className="advanced-options"><CollapsibleTrigger asChild><Button variant="ghost">Advanced options & session controls <ChevronDown size={15}/></Button></CollapsibleTrigger><CollapsibleContent>
-            {client === 'desktop' && models.map(model => <div className="advanced-model" key={model.name}><strong>{model.name}</strong><div className="grid-2"><Field label={`Display label for ${model.name}`}><FormInput disabled={busy} value={model.labelOverride} onChange={e => {edit();setModels(prev => prev.map(m => m.name === model.name ? {...m,labelOverride:e.target.value} : m));}}/></Field><Field label={`Effort cap for ${model.name}`}><SelectField disabled={busy} value={model.maxEffort ?? ''} onChange={e => {edit();setModels(prev => prev.map(m => m.name === model.name ? {...m,maxEffort:e.target.value} : m));}}><SelectChoice value="">Model default</SelectChoice>{EFFORTS.map((v,i) => <SelectChoice key={v} value={v}>{EFFORT_LABELS[i]}</SelectChoice>)}</SelectField></Field></div></div>)}
+            {client === 'desktop' && models.map(model => <div className="advanced-model" key={model.name}><strong>{model.name}</strong><div className="grid-2"><Field label={`Display label for ${model.name}`}><FormInput disabled={busy} value={model.labelOverride} onChange={e => {edit();setModels(prev => prev.map(m => m.name === model.name ? {...m,labelOverride:e.target.value} : m));}}/></Field><Field label={`Effort cap for ${model.name}`}><SelectField disabled={busy} value={model.maxEffort ?? ''} onChange={e => {edit();setModels(prev => prev.map(m => m.name === model.name ? {...m,maxEffort:e.target.value} : m));}}><SelectChoice value="">Model default</SelectChoice>{EFFORTS.map((v,i) => <SelectChoice key={v} value={v} disabled={i > EFFORTS.indexOf(MODELS.find(option => option.id === model.name)?.maxEffort || 'max')}>{EFFORT_LABELS[i]}</SelectChoice>)}</SelectField></Field></div></div>)}
             <div className="session-controls"><h3>Set inside each Claude session</h3><dl><div><dt>Permission mode</dt><dd>Manual, Accept edits, Plan, Auto when available, or Bypass permissions. Choose from Claude’s permission picker.</dd></div><div><dt>Reasoning</dt><dd><code>/effort</code> in CLI; the effort control beside the model in Desktop.</dd></div><div><dt>Ultracode off</dt><dd><code>/effort high</code> returns to regular reasoning.</dd></div><div><dt>Context</dt><dd><code>/context</code> in CLI; the context indicator beside the model in Desktop.</dd></div><div><dt>Session scope</dt><dd>This setup uses your shared local profile. Cloud sessions and Remote Control are not enabled by this screen.</dd></div></dl></div>
           </CollapsibleContent></Collapsible>
         </section>
@@ -195,7 +198,7 @@ export function Desktop() {
 
       <aside className="setup-summary" aria-label="Review your selection">
         <Card className="summary-card"><div className="row"><Gauge size={18}/><h2>{client === 'desktop' ? 'Your Desktop setup' : 'Your CLI launch'}</h2></div>
-          <dl><div><dt>Subscription</dt><dd>{selected?.profile.name ?? 'Choose an account'}</dd></div><div><dt>{client === 'desktop' ? 'Default model' : 'Model'}</dt><dd>{client === 'desktop' ? selectedModelLabel : MODELS.find(m => m.name === cliModel)?.label}</dd></div><div><dt>Context</dt><dd>1M preferred</dd></div><div><dt>Effort</dt><dd>{client === 'desktop' ? effort || 'Model default' : cliEffort}</dd></div><div><dt>Account switching</dt><dd>Manual only</dd></div></dl>
+          <dl><div><dt>Subscription</dt><dd>{selected?.profile.name ?? 'Choose an account'}</dd></div><div><dt>{client === 'desktop' ? 'Default model' : 'Model'}</dt><dd>{client === 'desktop' ? selectedModelLabel : MODELS.find(m => m.name === cliModel)?.label}</dd></div><div><dt>Context</dt><dd>1M configured</dd></div><div><dt>Effort</dt><dd>{client === 'desktop' ? effort || 'Model default' : cliEffort}</dd></div><div><dt>Account switching</dt><dd>Manual only</dd></div></dl>
           {client === 'desktop' ? <>
             <Chip tone={dirty ? 'warn' : 'plain'}>{!state ? 'Not loaded' : dirty ? 'Unsaved changes' : 'Matches saved settings'}</Chip>
             <p>Apply writes the Desktop configuration and keeps a backup. Restart Claude to load it; running sessions are not switched here.</p>

@@ -1,9 +1,10 @@
-import {CLAUDE_MODELS, subscriptionUrl} from './inference.ts';
+import {subscriptionUrl} from './inference.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {DESKTOP_CONFIG_DIR} from './paths.ts';
 import {consoleOrigin} from './runtime.ts';
 import { readJsonFile, writeJsonFile } from './json-store.ts';
+import {DEFAULT_CLAUDE_MODELS, EFFORTS, type Effort, type ClaudeModelOption} from './model-config.ts';
 import { WireError } from './wire.ts';
 import { accountModels, resolveSelection } from './routing.ts';
 import type { MgmtClient } from './mgmt.ts';
@@ -34,9 +35,9 @@ export async function desktopCatalog(mgmt: MgmtClient, profiles: ProfileStore) {
 export async function readDesktop(directory = desktopDirectory) {
   const file = await desktopFile(directory);
   const cfg = await readJsonFile<Record<string, unknown>>(file, {});
-  return {file, profile: /\/inference\/([^/]+)$/.exec(String(cfg.inferenceGatewayBaseUrl))?.[1] ?? '', autoMode: cfg.autoModeEnabled === true, models: cfg.inferenceModels ?? [], defaultEffort: cfg.defaultModelEffort ?? '', alwaysDefault: cfg.alwaysStartWithDefaultModel === true, gatewayUrl: cfg.inferenceGatewayBaseUrl ?? ''};
+  return {file, oneMillionConfigured: cfg.modelDiscoveryEnabled === false && cfg.modelPrefer1mContext === true, profile: /\/inference\/([^/]+)$/.exec(String(cfg.inferenceGatewayBaseUrl))?.[1] ?? '', autoMode: cfg.autoModeEnabled === true, models: cfg.inferenceModels ?? [], defaultEffort: cfg.defaultModelEffort ?? '', alwaysDefault: cfg.alwaysStartWithDefaultModel === true, gatewayUrl: cfg.inferenceGatewayBaseUrl ?? ''};
 }
-export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, proxyUrl: string, body: Record<string, unknown>, directory = desktopDirectory, origin = consoleOrigin()) {
+export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, proxyUrl: string, body: Record<string, unknown>, directory = desktopDirectory, origin = consoleOrigin(), allowedModels: ClaudeModelOption[] = DEFAULT_CLAUDE_MODELS) {
   const models = validateModels(body.models);
   if (typeof body.alwaysDefault !== 'boolean') throw new WireError('alwaysDefault must be a boolean');
   if (typeof body.defaultEffort !== 'string' || !['','low','medium','high','xhigh','max'].includes(body.defaultEffort)) throw new WireError('Invalid default effort');
@@ -45,13 +46,18 @@ export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, pro
   const profile = await profiles.get(body.profile);
   if (!profile.authFile.startsWith('claude-')) throw new WireError('Choose a Claude subscription');
   for (const model of models) {
-    if (!CLAUDE_MODELS.includes(model.name as typeof CLAUDE_MODELS[number])) throw new WireError('Use an official allowed Anthropic model ID');
+    const option = allowedModels.find(option => option.id === model.name);
+    if (!option) throw new WireError('Use a configured 1M Claude model');
+    if (model.maxEffort && EFFORTS.indexOf(model.maxEffort as Effort) > EFFORTS.indexOf(option.maxEffort)) throw new WireError('Selected effort cap exceeds the configured model capability');
+    model.maxEffort ||= option.maxEffort;
+    model.supports1m = true; model.prefer1m = true;
     await resolveSelection(mgmt, profiles, {profile: profile.id, model: model.name});
   }
+  if (body.defaultEffort && EFFORTS.indexOf(body.defaultEffort as Effort) > EFFORTS.indexOf(models[0]!.maxEffort as Effort)) throw new WireError('Default effort exceeds the default model’s cap');
   const file = await desktopFile(directory);
   const cfg = await readJsonFile<Record<string, unknown>>(file, {});
   if (cfg.inferenceProvider !== 'gateway' || (String(cfg.inferenceGatewayBaseUrl).replace(/\/$/, '') !== proxyUrl.replace(/\/$/, '') && !isConsoleRoute(String(cfg.inferenceGatewayBaseUrl), origin))) throw new WireError('Desktop must use this console’s proxy URL before applying models', 409);
-  const next: Record<string, unknown> = {...cfg, inferenceGatewayBaseUrl: subscriptionUrl(profile.id, origin), autoModeEnabled: body.autoMode, inferenceModels: models, alwaysStartWithDefaultModel: body.alwaysDefault};
+  const next: Record<string, unknown> = {...cfg, inferenceGatewayBaseUrl: subscriptionUrl(profile.id, origin), autoModeEnabled: body.autoMode, inferenceModels: models, modelDiscoveryEnabled: false, modelPrefer1mContext: true, alwaysStartWithDefaultModel: body.alwaysDefault};
   if (body.defaultEffort) next.defaultModelEffort = body.defaultEffort;
   else delete next.defaultModelEffort;
   const backup = `${file}.backup-${Date.now()}`;

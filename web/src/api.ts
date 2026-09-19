@@ -51,7 +51,7 @@ const body = (value: unknown) => JSON.stringify(value);
 
 export const api = {
   settings: () => request<Settings>('/api/settings'),
-  saveSettings: (patch: { displayName?: string; proxyUrl?: string; managementKey?: string; clientApiKey?: string; routingMode?: 'manual' }) =>
+  saveSettings: (patch: { displayName?: string; proxyUrl?: string; managementKey?: string; clientApiKey?: string; routingMode?: 'manual'; claudeModels?: import('./types').ClaudeModelOption[]; cliEffort?: string; claudeConfigDir?: string; desktopConfigDir?: string; consoleUrl?: string }) =>
     request<Settings>('/api/settings', { method: 'PUT', body: body(patch) }),
 
   health: () => request<Health>('/api/health'),

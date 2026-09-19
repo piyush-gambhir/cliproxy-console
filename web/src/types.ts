@@ -4,6 +4,7 @@
  * internal/api/handlers/management/auth_files.go:326-470.
  */
 
+export interface ClaudeModelOption {id: string; label: string; contextWindow: 1000000; maxEffort: 'low'|'medium'|'high'|'xhigh'|'max'}
 export interface Settings {
   displayName: string;
   proxyUrl: string;
@@ -14,7 +15,11 @@ export interface Settings {
   hasStoredClientApiKey: boolean;
   clientKeySource: 'env' | 'sqlite' | 'none';
   consoleUrl: string;
-  sources: {displayName: 'env' | 'sqlite' | 'default'; proxyUrl: 'env' | 'sqlite' | 'default'};
+  sources: Record<string, 'env' | 'sqlite' | 'default'>;
+  claudeModels: ClaudeModelOption[];
+  cliEffort: 'low'|'medium'|'high'|'xhigh'|'max';
+  claudeConfigDir: string;
+  desktopConfigDir: string;
   configFile: string;
   routingMode: 'manual';
 }

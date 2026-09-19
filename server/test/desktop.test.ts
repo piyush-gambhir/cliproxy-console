@@ -32,7 +32,8 @@ test('desktop validates isolation and preserves credentials with a backup', asyn
     const next = JSON.parse(await fs.readFile(file,'utf8'));
     assert.equal(next.inferenceGatewayBaseUrl,'http://localhost:9320/inference/a'); assert.equal(next.autoModeEnabled,true);
     assert.equal(next.inferenceGatewayApiKey,'secret'); assert.equal(next.other,'preserve');
-    assert.deepEqual(next.inferenceModels,body.models);
+    assert.deepEqual(next.inferenceModels,body.models.map(m => ({...m,maxEffort:'max'})));
+    assert.equal(next.modelDiscoveryEnabled,false); assert.equal(next.modelPrefer1mContext,true);
     assert.deepEqual(JSON.parse(await fs.readFile(result.backup,'utf8')),original);
     assert.ok(!JSON.stringify(result).includes('secret'));
     await applyDesktop(mgmt,profiles,'http://127.0.0.1:8317',body,dir,'http://localhost:9320');

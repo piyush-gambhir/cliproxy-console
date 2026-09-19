@@ -6,7 +6,10 @@ from pathlib import Path
 import shutil
 import sys
 
-root = Path(os.environ.get('CLIPROXY_SERVICE_DIR', str(Path(os.environ.get('CLIPROXY_DATA_DIR', str(Path.home() / '.cliproxy-console'))).expanduser() / 'proxy-service'))).expanduser()
+startup_file = Path(os.environ.get('CLIPROXY_STARTUP_FILE', str(Path.home() / '.cliproxy-console/startup.json'))).expanduser()
+startup_settings = json.loads(startup_file.read_text()) if startup_file.is_file() else {}
+startup_settings = startup_settings.get('migration', {}).get('from', startup_settings)
+root = Path(os.environ.get('CLIPROXY_SERVICE_DIR', str(Path(os.environ.get('CLIPROXY_DATA_DIR') or startup_settings.get('dataDir') or str(Path.home() / '.cliproxy-console')).expanduser() / 'proxy-service'))).expanduser()
 settings_file = root / 'service-settings.json'
 settings = json.loads(settings_file.read_text()) if settings_file.is_file() else {}
 brew = os.environ.get('CLIPROXY_BREW') or settings.get('brewBinary') or shutil.which('brew') or '/opt/homebrew/bin/brew'

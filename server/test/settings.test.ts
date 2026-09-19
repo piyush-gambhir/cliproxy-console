@@ -110,3 +110,20 @@ test('console routes derive from configured port or loopback origin and reject r
   for (const value of ['0','NaN','65536','-1']) assert.throws(() => consolePort({PORT: value}));
   for (const value of ['https://example.com', 'http://user:secret@localhost', 'http://localhost/path', 'http://localhost?key=x', 'file:///tmp/a']) assert.throws(() => consoleOrigin({CLIPROXY_CONSOLE_URL: value}));
 });
+
+
+test('frontend model configuration persists and rejects 200K, prefixed IDs, duplicates and invalid defaults atomically', async () => fixture(async file => {
+  const store = new SettingsStore(file, {env:{}});
+  const model = {id:'claude-opus-5',label:'Primary Claude',contextWindow:1000000,maxEffort:'high'};
+  await store.update({claudeModels:[model],cliEffort:'high',consoleUrl:'http://localhost:9330',claudeConfigDir:'~/custom-claude'});
+  const view = await new SettingsStore(file, {env:{}}).publicView();
+  assert.deepEqual(view.claudeModels,[model]);assert.equal(view.consoleUrl,'http://localhost:9330');
+  assert.equal(view.claudeConfigDir,path.join(os.homedir(),'custom-claude'));
+  for (const models of [[],[{...model,contextWindow:200000}],[{...model,id:'account/claude-opus-5'}],[{...model,id:'claude-opus-5[1m]'}],[model,model]]) await assert.rejects(store.update({claudeModels:models}));
+  await assert.rejects(store.update({cliEffort:'max'}),/effort cap/);
+  assert.equal((await store.load()).cliEffort,'high');
+  const override = new SettingsStore(file,{env:{CLIPROXY_CLAUDE_MODELS:JSON.stringify([{...model,label:'Environment label'}])}});
+  await override.update({displayName:'Unrelated change'});
+  assert.equal((await override.publicView()).sources.claudeModels,'env');
+  assert.equal((await store.load()).claudeModels[0]?.label,'Primary Claude');
+}));
