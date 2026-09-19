@@ -116,11 +116,10 @@ export class MgmtClient {
     }
   }
 
-  /** GET ${proxyUrl}/v1/models using the first client key from /v0/management/api-keys. */
+  /** Prefer the configured client key; otherwise discover one from the proxy. */
   async proxyModels(): Promise<{ data: Array<{ id: string }> }> {
-    const { proxyUrl } = await this.#settings.load();
-    const keys = await this.json<{ 'api-keys': string[] | null }>('GET', 'api-keys');
-    const first = (keys['api-keys'] ?? [])[0];
+    const { proxyUrl, clientApiKey } = await this.#settings.load();
+    const first = clientApiKey || (await this.json<{ 'api-keys': string[] | null }>('GET', 'api-keys'))['api-keys']?.[0];
     if (!first) {
       const err = new Error('the proxy has no client API keys configured') as Error & { status?: number };
       err.status = 409;

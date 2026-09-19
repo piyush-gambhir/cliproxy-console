@@ -18,8 +18,11 @@ management features. Host/Origin validation reduces cross-site and DNS-rebinding
 exposure; it is not a substitute for authentication on an internet-facing service.
 Do not publish the running console through a tunnel, reverse proxy, or shared host.
 
-The console stores its proxy management key under `~/.cliproxy-console/` with
-restricted file permissions and does not return that key to the browser. Some
+The console accepts management/client keys from environment variables or its local
+`~/.cliproxy-console/settings.sqlite` database. SQLite and migration backups use
+owner-only permissions, but are not encrypted. Environment overrides are not
+persisted by saves. Settings never returns either key, and the management key
+stays server-side. Some
 Advanced connections previews intentionally expose proxy client keys to configure
 clients. Treat those previews as sensitive. Provider credentials stay in the
 proxy's auth store. Backups of local configuration may contain secrets.

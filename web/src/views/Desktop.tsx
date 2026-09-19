@@ -13,7 +13,7 @@ import type {AuthFile, Profile} from '../types';
 import {claudeCommand} from '../lib/claude-command';
 
 interface Model {name: string; labelOverride: string; maxEffort?: string; supports1m?: boolean; prefer1m?: boolean}
-interface State {profile: string; autoMode: boolean; models: (Model|string)[]; defaultEffort: string; alwaysDefault: boolean; gatewayUrl: string; catalog: {profile: Profile; models: string[]; error?: string}[]}
+interface State {consoleUrl: string; profile: string; autoMode: boolean; models: (Model|string)[]; defaultEffort: string; alwaysDefault: boolean; gatewayUrl: string; catalog: {profile: Profile; models: string[]; error?: string}[]}
 const MODELS = [
   {name:'claude-opus-5', label:'Claude Opus 5', alias:'opus', description:'Deep reasoning and complex coding'},
   {name:'claude-fable-5-1', label:'Claude Fable 5.1', alias:'fable', description:'An alternative for demanding work'},
@@ -89,7 +89,7 @@ export function Desktop() {
   const dirty = state && (profile !== state.profile || autoMode !== state.autoMode || effort !== state.defaultEffort || always !== state.alwaysDefault || JSON.stringify(normalize(models)) !== JSON.stringify(normalize(state.models)));
   const labelError = models.some(m => !m.labelOverride.trim() || m.labelOverride.length > 200) ? 'Each model needs a display label of 1–200 characters.' : '';
   const canSave = Boolean(state && dirty && !busy && !unavailable && !modelError && !effortError && !labelError);
-  const cliCommand = selected && serves(cliModel) && !unavailable ? claudeCommand(selected.profile.id, cliModel, cliEffort) : '';
+  const cliCommand = state && selected && serves(cliModel) && !unavailable ? claudeCommand(selected.profile.id, cliModel, cliEffort, state.consoleUrl) : '';
   const selectedModelLabel = MODELS.find(m => m.name === models[0]?.name)?.label ?? 'No model';
 
   function edit() {setSaved(false);}

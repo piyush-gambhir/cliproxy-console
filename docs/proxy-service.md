@@ -25,7 +25,8 @@ to your installation. Do not commit the local copy.
 | `repository` | `CLIPROXY_RELEASE_REPOSITORY` | `https://github.com/router-for-me/CLIProxyAPI` |
 | `consoleUrl` | `CLIPROXY_CONSOLE_URL` | `http://127.0.0.1:8320` |
 
-`CLIPROXY_SERVICE_DIR` overrides the service directory, including the location of
+`CLIPROXY_SERVICE_DIR` overrides the service directory (by default
+`<CLIPROXY_DATA_DIR or ~/.cliproxy-console>/proxy-service`), including the location of
 that JSON file. The console URL must be local. Environment overrides apply to the
 current invocation; store persistent choices in the JSON file.
 

@@ -8,7 +8,13 @@ export interface Settings {
   displayName: string;
   proxyUrl: string;
   hasManagementKey: boolean;
-  keySource: 'env' | 'file' | 'none';
+  keySource: 'env' | 'sqlite' | 'none';
+  hasStoredManagementKey: boolean;
+  hasClientApiKey: boolean;
+  hasStoredClientApiKey: boolean;
+  clientKeySource: 'env' | 'sqlite' | 'none';
+  consoleUrl: string;
+  sources: {displayName: 'env' | 'sqlite' | 'default'; proxyUrl: 'env' | 'sqlite' | 'default'};
   configFile: string;
   routingMode: 'manual';
 }

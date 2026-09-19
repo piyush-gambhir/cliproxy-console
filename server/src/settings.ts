@@ -1,102 +1,166 @@
-import { CONFIG_FILE } from './paths.ts';
-import { readJsonFile, writeJsonFile } from './json-store.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
+import {CONFIG_FILE, SETTINGS_DB} from './paths.ts';
+import {consoleOrigin} from './runtime.ts';
 
 export interface ConsoleConfig {
   displayName: string;
   proxyUrl: string;
   managementKey: string;
+  clientApiKey: string;
   routingMode: 'manual';
 }
 
 export const DEFAULT_PROXY_URL = 'http://127.0.0.1:8317';
+const DEFAULTS: ConsoleConfig = {
+  displayName: 'CLIProxy Console', proxyUrl: DEFAULT_PROXY_URL,
+  managementKey: '', clientApiKey: '', routingMode: 'manual',
+};
+const ENV = {
+  displayName: 'CLIPROXY_DISPLAY_NAME', proxyUrl: 'CLIPROXY_URL',
+  managementKey: 'CLIPROXY_MGMT_KEY', clientApiKey: 'CLIPROXY_API_KEY',
+} as const;
+type Source = 'env' | 'sqlite' | 'default';
+type Patch = Partial<Record<keyof ConsoleConfig, unknown>>;
 
-const DEFAULTS: ConsoleConfig = { displayName: 'CLIProxy Console', proxyUrl: DEFAULT_PROXY_URL, managementKey: '', routingMode: 'manual' };
-
-/** What the browser is allowed to know. The key itself never leaves this process. */
+/** Secrets are write-only in settings. Client setup previews may explicitly include a client key. */
 export interface PublicSettings {
   displayName: string;
   proxyUrl: string;
+  consoleUrl: string;
   hasManagementKey: boolean;
-  keySource: 'env' | 'file' | 'none';
+  hasStoredManagementKey: boolean;
+  keySource: 'env' | 'sqlite' | 'none';
+  hasClientApiKey: boolean;
+  hasStoredClientApiKey: boolean;
+  clientKeySource: 'env' | 'sqlite' | 'none';
+  sources: {displayName: Source; proxyUrl: Source};
   configFile: string;
   routingMode: 'manual';
 }
 
-function normaliseDisplayName(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim() || value.trim().length > 80) {
-    throw Object.assign(new Error('Console name must contain 1–80 characters'), {status: 400});
-  }
-  return value.trim();
-}
+function invalid(message: string): never { throw Object.assign(new Error(message), {status: 400}); }
 
-function normaliseProxyUrl(value: unknown): string {
-  if (typeof value !== 'string' || value.trim() === '') return DEFAULT_PROXY_URL;
-  const trimmed = value.trim().replace(/\/+$/, '');
-  const url = new URL(trimmed); // throws on garbage, which the caller turns into a 400
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('proxyUrl must be http or https');
+function validate(patch: Patch): Partial<ConsoleConfig> {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) invalid('Settings must be an object');
+  const out: Partial<ConsoleConfig> = {};
+  if (patch.displayName !== undefined) {
+    if (typeof patch.displayName !== 'string' || !patch.displayName.trim() || patch.displayName.trim().length > 80) invalid('Console name must contain 1–80 characters');
+    out.displayName = patch.displayName.trim();
   }
-  return trimmed;
+  if (patch.proxyUrl !== undefined) {
+    if (typeof patch.proxyUrl !== 'string') invalid('proxyUrl must be an HTTP(S) URL');
+    const value = patch.proxyUrl.trim().replace(/\/+$/, '') || DEFAULT_PROXY_URL;
+    let url: URL;
+    try { url = new URL(value); } catch { invalid('proxyUrl must be an HTTP(S) URL'); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) invalid('proxyUrl must be an HTTP(S) URL without credentials, query or fragment');
+    out.proxyUrl = value;
+  }
+  for (const key of ['managementKey', 'clientApiKey'] as const) {
+    if (patch[key] === undefined) continue;
+    if (typeof patch[key] !== 'string' || /[\r\n\0]/.test(patch[key])) invalid(`${key} must be a single-line string`);
+    out[key] = patch[key].trim();
+  }
+  if (patch.routingMode !== undefined && patch.routingMode !== 'manual') invalid('Invalid routing mode');
+  if (patch.routingMode !== undefined) out.routingMode = 'manual';
+  return out;
 }
 
 export class SettingsStore {
-  #cached: ConsoleConfig | null = null;
   readonly #file: string;
+  readonly #legacyFile: string | undefined;
+  readonly #env: NodeJS.ProcessEnv;
 
-  constructor(file: string = CONFIG_FILE) {
+  constructor(file = SETTINGS_DB, options: {legacyFile?: string; env?: NodeJS.ProcessEnv} = {}) {
     this.#file = file;
+    this.#legacyFile = options.legacyFile ?? (file === SETTINGS_DB ? CONFIG_FILE : undefined);
+    this.#env = options.env ?? process.env;
   }
 
-  get file(): string {
-    return this.#file;
+  get file(): string { return this.#file; }
+  get consoleUrl(): string { return consoleOrigin(this.#env); }
+
+  /** Short-lived connections avoid lingering locks; each read/update/migration is one transaction. */
+  #database<T>(run: (db: DatabaseSync) => T): T {
+    fs.mkdirSync(path.dirname(this.#file), {recursive: true, mode: 0o700});
+    // Create with private permissions before SQLite can write a secret to it.
+    fs.closeSync(fs.openSync(this.#file, 'a', 0o600));
+    fs.chmodSync(this.#file, 0o600);
+    const db = new DatabaseSync(this.#file);
+    try {
+      db.exec('PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON; BEGIN IMMEDIATE');
+      const version = db.prepare('PRAGMA user_version').get()?.user_version;
+      if (Number(version) > 1) throw new Error('Settings database is newer than this console; upgrade before opening it');
+      db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      db.exec('CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY)');
+      const migrated = db.prepare('SELECT name FROM migrations WHERE name = ?').get('legacy-json');
+      if (!migrated) {
+        if (this.#legacyFile && fs.existsSync(this.#legacyFile)) {
+          const legacy = JSON.parse(fs.readFileSync(this.#legacyFile, 'utf8'));
+          if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) throw new Error('Legacy settings must be a JSON object');
+          // Runtime environment values are deliberately absent from migration and persistence.
+          const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+          for (const [key, value] of Object.entries(validate(legacy))) insert.run(key, JSON.stringify(value));
+        }
+        db.prepare('INSERT INTO migrations (name) VALUES (?)').run('legacy-json');
+      }
+      if (Number(version) !== 1) db.exec('PRAGMA user_version = 1');
+      const result = run(db);
+      db.exec('COMMIT');
+      // A crash after COMMIT is harmless: the marker prevents importing stale values again.
+      if (this.#legacyFile && fs.existsSync(this.#legacyFile)) {
+        fs.chmodSync(this.#legacyFile, 0o600);
+        const backup = `${this.#legacyFile}.migrated`;
+        if (fs.existsSync(backup)) throw new Error('Legacy settings backup already exists; move the old JSON file aside before continuing');
+        fs.renameSync(this.#legacyFile, backup);
+      }
+      return result;
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    } finally { db.close(); }
+  }
+
+  #read(db: DatabaseSync): Partial<ConsoleConfig> {
+    return validate(Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(row => [String(row.key), JSON.parse(String(row.value))])));
+  }
+
+  #resolve(stored: Partial<ConsoleConfig>): ConsoleConfig {
+    const overrides: Patch = {};
+    for (const [key, name] of Object.entries(ENV)) {
+      const value = this.#env[name]?.trim();
+      if (value) overrides[key as keyof typeof ENV] = value;
+    }
+    return {...DEFAULTS, ...stored, ...validate(overrides), routingMode: 'manual'};
   }
 
   async load(): Promise<ConsoleConfig> {
-    if (this.#cached) return this.#cached;
-    const onDisk = await readJsonFile<Partial<ConsoleConfig>>(this.#file, {});
-    const envKey = (process.env['CLIPROXY_MGMT_KEY'] ?? '').trim();
-    const envUrl = (process.env['CLIPROXY_URL'] ?? '').trim();
-    this.#cached = {
-      displayName: typeof onDisk.displayName === 'string' && onDisk.displayName.trim() ? onDisk.displayName.trim() : DEFAULTS.displayName,
-      routingMode: 'manual',
-      proxyUrl: envUrl || (typeof onDisk.proxyUrl === 'string' && onDisk.proxyUrl ? onDisk.proxyUrl : DEFAULTS.proxyUrl),
-      managementKey: envKey || (typeof onDisk.managementKey === 'string' ? onDisk.managementKey : ''),
-    };
-    return this.#cached;
+    return this.#resolve(this.#database(db => this.#read(db)));
   }
 
   async publicView(): Promise<PublicSettings> {
-    const cfg = await this.load();
-    const fromEnv = (process.env['CLIPROXY_MGMT_KEY'] ?? '').trim() !== '';
+    const stored = this.#database(db => this.#read(db));
+    const cfg = this.#resolve(stored);
+    const source = (key: keyof typeof ENV): Source => this.#env[ENV[key]]?.trim() ? 'env' : stored[key] ? 'sqlite' : 'default';
     return {
-      displayName: cfg.displayName,
-      proxyUrl: cfg.proxyUrl,
-      routingMode: cfg.routingMode,
-      hasManagementKey: cfg.managementKey !== '',
-      keySource: cfg.managementKey === '' ? 'none' : fromEnv ? 'env' : 'file',
-      configFile: this.#file,
+      displayName: cfg.displayName, proxyUrl: cfg.proxyUrl, consoleUrl: this.consoleUrl,
+      routingMode: 'manual', configFile: this.#file,
+      hasManagementKey: !!cfg.managementKey, hasStoredManagementKey: !!stored.managementKey,
+      keySource: cfg.managementKey ? source('managementKey') as 'env' | 'sqlite' : 'none',
+      hasClientApiKey: !!cfg.clientApiKey, hasStoredClientApiKey: !!stored.clientApiKey,
+      clientKeySource: cfg.clientApiKey ? source('clientApiKey') as 'env' | 'sqlite' : 'none',
+      sources: {displayName: source('displayName'), proxyUrl: source('proxyUrl')},
     };
   }
 
-  /**
-   * Update settings. `managementKey` is write-only: omitting it keeps the stored key,
-   * passing an empty string clears it. The env var always wins for the live value.
-   */
-  async update(patch: { displayName?: unknown; proxyUrl?: unknown; managementKey?: unknown; routingMode?: unknown }): Promise<PublicSettings> {
-    const current = await this.load();
-    const next: ConsoleConfig = { ...current };
-    if (patch.displayName !== undefined) next.displayName = normaliseDisplayName(patch.displayName);
-    if (patch.proxyUrl !== undefined) next.proxyUrl = normaliseProxyUrl(patch.proxyUrl);
-    if (patch.managementKey !== undefined) {
-      if (typeof patch.managementKey !== 'string') throw new Error('managementKey must be a string');
-      next.managementKey = patch.managementKey.trim();
-    }
-    if (patch.routingMode !== undefined) {
-      if (patch.routingMode !== 'manual') throw Object.assign(new Error('Invalid routing mode'), {status: 400});
-      next.routingMode = patch.routingMode;
-    }
-    await writeJsonFile(this.#file, next);
-    this.#cached = null;
+  /** Only explicitly supplied fields are written. Empty keys clear saved values; env overrides remain. */
+  async update(patch: Patch): Promise<PublicSettings> {
+    const values = validate(patch);
+    this.#database(db => {
+      const write = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+      for (const [key, value] of Object.entries(values)) write.run(key, JSON.stringify(value));
+    });
     return this.publicView();
   }
 }

@@ -206,12 +206,11 @@ describe('zshSnippet', () => {
       proxyUrl: 'http://127.0.0.1:8317/',
       model: 'claude-opus-5',
       prefix: 'work',
-      apiKeyHint: 'sk-abc',
     });
     assert.match(snippet, /^work-claude\(\) \{$/m);
-    assert.match(snippet, /ANTHROPIC_MODEL="work\/claude-opus-5"/);
-    assert.match(snippet, /ANTHROPIC_BASE_URL="http:\/\/127\.0\.0\.1:8317"/);
-    assert.match(snippet, /CLIPROXY_API_KEY:-sk-abc/);
+    assert.match(snippet, /ANTHROPIC_MODEL='work\/claude-opus-5'/);
+    assert.match(snippet, /ANTHROPIC_BASE_URL='http:\/\/127\.0\.0\.1:8317'/);
+    assert.match(snippet, /CLIPROXY_API_KEY:\?Set/);
   });
 
   test('scopes the proxy vars to the claude call instead of exporting them', () => {
@@ -219,10 +218,9 @@ describe('zshSnippet', () => {
       functionName: 'personal',
       proxyUrl: 'http://127.0.0.1:8317',
       model: 'claude-opus-5',
-      apiKeyHint: 'sk-abc',
     });
     assert.doesNotMatch(snippet, /\bexport\b/);
     // Each assignment is a line continuation feeding the final `claude "$@"`.
-    assert.match(snippet, /ANTHROPIC_BASE_URL="[^"]+" \\\n\s+ANTHROPIC_AUTH_TOKEN="[^"]+" \\\n\s+ANTHROPIC_MODEL="[^"]+" \\\n\s+claude "\$@"/);
+    assert.match(snippet, /ANTHROPIC_BASE_URL='[^']+' \\\n\s+ANTHROPIC_AUTH_TOKEN="[^"]+" \\\n\s+ANTHROPIC_MODEL='[^']+' \\\n\s+claude "\$@"/);
   });
 });

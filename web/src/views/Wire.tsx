@@ -28,6 +28,7 @@ export function Wire({ onOpenSettings, toast }: Props) {
   const [model, setModel] = useState('');
   const [keys, setKeys] = useState<string[]>([]);
   const [apiKey, setApiKey] = useState('');
+  const [hasConfiguredKey, setHasConfiguredKey] = useState(false);
   const [targets, setTargets] = useState<Targets | null>(null);
   const [target, setTarget] = useState<'project' | 'profile-global'>('project');
   const [dir, setDir] = useState('');
@@ -45,7 +46,9 @@ export function Wire({ onOpenSettings, toast }: Props) {
   useEffect(() => {
     void (async () => {
       try {
-        const [profileRes, keyRes, targetRes] = await Promise.all([api.profiles(), api.apiKeys(), api.targets()]);
+        const [profileRes, settings, targetRes] = await Promise.all([api.profiles(), api.settings(), api.targets()]);
+        setHasConfiguredKey(settings.hasClientApiKey);
+        const keyRes = settings.hasClientApiKey ? {'api-keys': []} : await api.apiKeys();
         setProfiles(profileRes.profiles);
 
         const list = keyRes['api-keys'] ?? [];
@@ -89,7 +92,7 @@ export function Wire({ onOpenSettings, toast }: Props) {
     }
   }, [target, targets, dir]);
 
-  const ready = Boolean((profile && prefix) && !modelsLoading && model && apiKey && dir.trim());
+  const ready = Boolean((profile && prefix) && !modelsLoading && model && (apiKey || hasConfiguredKey) && dir.trim());
 
   useEffect(() => {
     let live = true;
@@ -111,13 +114,13 @@ export function Wire({ onOpenSettings, toast }: Props) {
     }
     let live = true;
     api
-      .snippet({ profile: profile?.id ?? '', model, routingMode, apiKeyHint: apiKey || 'your-proxy-api-key' })
+      .snippet({ profile: profile?.id ?? '', model, routingMode })
       .then((res) => live && setSnippet(res.snippet))
       .catch(err => { if (live) setSnippetError(err); });
     return () => {
       live = false;
     };
-  }, [apiKey, model, prefix, profile, routingMode]);
+  }, [model, prefix, profile, routingMode]);
 
   const write = useCallback(async () => {
     setBusy(true);
@@ -210,9 +213,9 @@ export function Wire({ onOpenSettings, toast }: Props) {
 
               <Field
                 label="Proxy API key"
-                hint={keys.length === 0 ? 'No client keys configured on the proxy.' : `${keys.length} available`}
+                hint={hasConfiguredKey ? 'Using the client key from Settings or the server environment.' : keys.length === 0 ? 'No client keys configured on the proxy.' : `${keys.length} available`}
               >
-                {keys.length === 0 ? (
+                {keys.length === 0 && !hasConfiguredKey ? (
                   <FormInput
                     className="mono"
                     type="text"
@@ -222,6 +225,7 @@ export function Wire({ onOpenSettings, toast }: Props) {
                   />
                 ) : (
                   <SelectField className="mono" value={apiKey} onChange={(e) => setApiKey(e.target.value)}>
+                    {hasConfiguredKey && <SelectChoice value="">Configured key (server)</SelectChoice>}
                     {keys.map((k) => (
                       <SelectChoice key={k} value={k}>
                         {maskKey(k)}
@@ -319,8 +323,7 @@ export function Wire({ onOpenSettings, toast }: Props) {
               <Card className="card">
                 <CodeBlock text={snippet} />
                 <span className="muted">
-                  Nothing here runs it — copy it yourself. The key falls back to <code>$CLIPROXY_API_KEY</code> when
-                  that is set.
+                  Set <code>CLIPROXY_API_KEY</code> in your shell before using this function. Copied commands never contain a key.
                 </span>
               </Card>
             </>

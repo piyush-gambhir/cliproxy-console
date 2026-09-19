@@ -28,13 +28,15 @@ test('desktop validates isolation and preserves credentials with a backup', asyn
     await assert.rejects(applyDesktop(mgmt,profiles,'http://127.0.0.1:8317',body,dir), /shared/);
     assert.deepEqual(JSON.parse(await fs.readFile(file,'utf8')), original);
     collision = false;
-    const result = await applyDesktop(mgmt,profiles,'http://127.0.0.1:8317',body,dir);
+    const result = await applyDesktop(mgmt,profiles,'http://127.0.0.1:8317',body,dir,'http://localhost:9320');
     const next = JSON.parse(await fs.readFile(file,'utf8'));
-    assert.equal(next.inferenceGatewayBaseUrl,'http://127.0.0.1:8320/inference/a'); assert.equal(next.autoModeEnabled,true);
+    assert.equal(next.inferenceGatewayBaseUrl,'http://localhost:9320/inference/a'); assert.equal(next.autoModeEnabled,true);
     assert.equal(next.inferenceGatewayApiKey,'secret'); assert.equal(next.other,'preserve');
     assert.deepEqual(next.inferenceModels,body.models);
     assert.deepEqual(JSON.parse(await fs.readFile(result.backup,'utf8')),original);
     assert.ok(!JSON.stringify(result).includes('secret'));
+    await applyDesktop(mgmt,profiles,'http://127.0.0.1:8317',body,dir,'http://localhost:9320');
+    await assert.rejects(applyDesktop(mgmt,profiles,'http://127.0.0.1:8317',body,dir,'http://localhost:9321'), /proxy URL/);
     await fs.writeFile(path.join(dir,'_meta.json'), JSON.stringify({appliedId:'../escape'}));
     await assert.rejects(desktopFile(dir));
   } finally {await fs.rm(dir,{recursive:true,force:true});}

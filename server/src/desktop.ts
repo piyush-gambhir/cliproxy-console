@@ -1,14 +1,15 @@
 import {CLAUDE_MODELS, subscriptionUrl} from './inference.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
+import {DESKTOP_CONFIG_DIR} from './paths.ts';
+import {consoleOrigin} from './runtime.ts';
 import { readJsonFile, writeJsonFile } from './json-store.ts';
 import { WireError } from './wire.ts';
 import { accountModels, resolveSelection } from './routing.ts';
 import type { MgmtClient } from './mgmt.ts';
 import type { ProfileStore } from './profiles.ts';
 
-export const desktopDirectory = path.join(os.homedir(), 'Library/Application Support/Claude-3p/configLibrary');
+export const desktopDirectory = DESKTOP_CONFIG_DIR;
 export interface DesktopModel { name: string; labelOverride: string; maxEffort?: string; supports1m?: boolean; prefer1m?: boolean }
 export function validateModels(value: unknown): DesktopModel[] {
   if (!Array.isArray(value) || !value.length || value.length > 100) throw new WireError('Select between 1 and 100 models');
@@ -35,7 +36,7 @@ export async function readDesktop(directory = desktopDirectory) {
   const cfg = await readJsonFile<Record<string, unknown>>(file, {});
   return {file, profile: /\/inference\/([^/]+)$/.exec(String(cfg.inferenceGatewayBaseUrl))?.[1] ?? '', autoMode: cfg.autoModeEnabled === true, models: cfg.inferenceModels ?? [], defaultEffort: cfg.defaultModelEffort ?? '', alwaysDefault: cfg.alwaysStartWithDefaultModel === true, gatewayUrl: cfg.inferenceGatewayBaseUrl ?? ''};
 }
-export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, proxyUrl: string, body: Record<string, unknown>, directory = desktopDirectory) {
+export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, proxyUrl: string, body: Record<string, unknown>, directory = desktopDirectory, origin = consoleOrigin()) {
   const models = validateModels(body.models);
   if (typeof body.alwaysDefault !== 'boolean') throw new WireError('alwaysDefault must be a boolean');
   if (typeof body.defaultEffort !== 'string' || !['','low','medium','high','xhigh','max'].includes(body.defaultEffort)) throw new WireError('Invalid default effort');
@@ -49,8 +50,8 @@ export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, pro
   }
   const file = await desktopFile(directory);
   const cfg = await readJsonFile<Record<string, unknown>>(file, {});
-  if (cfg.inferenceProvider !== 'gateway' || (String(cfg.inferenceGatewayBaseUrl).replace(/\/$/, '') !== proxyUrl.replace(/\/$/, '') && !/^http:\/\/127\.0\.0\.1:8320\/inference\/[a-zA-Z0-9-]+$/.test(String(cfg.inferenceGatewayBaseUrl)))) throw new WireError('Desktop must use this console’s proxy URL before applying models', 409);
-  const next: Record<string, unknown> = {...cfg, inferenceGatewayBaseUrl: subscriptionUrl(profile.id), autoModeEnabled: body.autoMode, inferenceModels: models, alwaysStartWithDefaultModel: body.alwaysDefault};
+  if (cfg.inferenceProvider !== 'gateway' || (String(cfg.inferenceGatewayBaseUrl).replace(/\/$/, '') !== proxyUrl.replace(/\/$/, '') && !isConsoleRoute(String(cfg.inferenceGatewayBaseUrl), origin))) throw new WireError('Desktop must use this console’s proxy URL before applying models', 409);
+  const next: Record<string, unknown> = {...cfg, inferenceGatewayBaseUrl: subscriptionUrl(profile.id, origin), autoModeEnabled: body.autoMode, inferenceModels: models, alwaysStartWithDefaultModel: body.alwaysDefault};
   if (body.defaultEffort) next.defaultModelEffort = body.defaultEffort;
   else delete next.defaultModelEffort;
   const backup = `${file}.backup-${Date.now()}`;
@@ -58,4 +59,12 @@ export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, pro
   await fs.chmod(backup, 0o600);
   await writeJsonFile(file, next);
   return { ...await readDesktop(directory), backup, restartRequired: true };
+}
+
+function isConsoleRoute(value: string, origin: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.origin === origin && !url.username && !url.password && !url.search && !url.hash
+      && /^\/inference\/[a-zA-Z0-9-]+$/.test(url.pathname);
+  } catch { return false; }
 }

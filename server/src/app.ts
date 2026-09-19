@@ -9,7 +9,7 @@ import { SettingsStore } from './settings.ts';
 import { ProfileStore, ProfileError } from './profiles.ts';
 import { MgmtClient, MgmtDisabledError } from './mgmt.ts';
 import { readBody, readJsonBody, sendError, sendJson, serveStatic } from './http.ts';
-import { PathError, RECENTS_FILE, resolveUserDir, tildify, HOME } from './paths.ts';
+import { PathError, RECENTS_FILE, resolveUserDir, tildify, CLAUDE_CONFIG_DIR } from './paths.ts';
 import { readJsonFile, writeJsonFile } from './json-store.ts';
 import {
   WireError,
@@ -29,11 +29,12 @@ export interface AppDeps {
   webDist: string | null;
   /** Where the "recent project folders" list lives. */
   recentsFile?: string;
+  usageFile?: string;
 }
 
 /** One shared Claude Code profile for all explicitly selected subscriptions. */
 export const GLOBAL_CONFIG_DIRS = [
-  path.join(HOME, '.claude'),
+  CLAUDE_CONFIG_DIR,
 ];
 
 async function loadRecents(file: string): Promise<string[]> {
@@ -143,11 +144,11 @@ export function createApp(deps: AppDeps) {
         return await relayInference(req,res,decodeURIComponent(match[1]!),match[2]!,proxyUrl,deps.mgmt,deps.profiles);
       }
       if (pathname === '/api/desktop' && method === 'GET') {
-        return sendJson(res, 200, {...await readDesktop(), catalog: await desktopCatalog(deps.mgmt, deps.profiles)});
+        return sendJson(res, 200, {...await readDesktop(), consoleUrl: deps.settings.consoleUrl, catalog: await desktopCatalog(deps.mgmt, deps.profiles)});
       }
       if (pathname === '/api/desktop' && method === 'PUT') {
         const {proxyUrl} = await deps.settings.load();
-        return sendJson(res, 200, await applyDesktop(deps.mgmt, deps.profiles, proxyUrl, await readJsonBody<Record<string, unknown>>(req)));
+        return sendJson(res, 200, await applyDesktop(deps.mgmt, deps.profiles, proxyUrl, await readJsonBody<Record<string, unknown>>(req), undefined, deps.settings.consoleUrl));
       }
       // ---------- settings ----------
       if (pathname === '/api/settings' && method === 'GET') {
@@ -187,7 +188,7 @@ export function createApp(deps: AppDeps) {
         const profile = await deps.profiles.get(decodeURIComponent(pathname.split('/')[3]!));
         const { proxyUrl } = await deps.settings.load();
         const key = `${proxyUrl}|${profile.authFile}`;
-        const file = path.join(path.dirname(deps.settings.file), 'subscription-usage.json');
+        const file = deps.usageFile ?? path.join(path.dirname(deps.settings.file), 'subscription-usage.json');
         const snapshots = await readJsonFile<Record<string, SubscriptionUsage>>(file, {});
         if (method === 'GET') return sendJson(res, 200, { usage: snapshots[key] ?? null });
         const usage = await fetchSubscriptionUsage(deps.mgmt, profile.authFile);
@@ -245,15 +246,16 @@ export function createApp(deps: AppDeps) {
       // ---------- wiring ----------
       if ((pathname === '/api/wire' || pathname === '/api/wire/preview') && method === 'POST') {
         const body = await readJsonBody<Record<string, unknown>>(req);
-        let { proxyUrl } = await deps.settings.load();
+        const configured = await deps.settings.load();
+        let { proxyUrl } = configured;
         const selection = await resolveSelection(deps.mgmt, deps.profiles, body);
         const profile = await deps.profiles.get(String(body.profile));
         if (profile.authFile.startsWith('claude-')) {
           const canonical = selection.model.slice(profile.lastKnownPrefix!.length + 1);
           if (!CLAUDE_MODELS.includes(canonical as typeof CLAUDE_MODELS[number])) throw new WireError('Choose an allowed official Anthropic model');
-          selection.model = `${canonical}[1m]`; proxyUrl = subscriptionUrl(profile.id);
+          selection.model = `${canonical}[1m]`; proxyUrl = subscriptionUrl(profile.id, deps.settings.consoleUrl);
         }
-        const input = wireInputFrom({ ...body, ...selection }, proxyUrl);
+        const input = wireInputFrom({ ...body, ...selection, apiKey: body.apiKey || configured.clientApiKey }, proxyUrl);
         if (pathname === '/api/wire/preview') {
           return sendJson(res, 200, await planWire(input));
         }
@@ -271,15 +273,14 @@ export function createApp(deps: AppDeps) {
         if (profile.authFile.startsWith('claude-')) {
           const canonical = selection.model.slice(profile.lastKnownPrefix!.length + 1);
           if (!CLAUDE_MODELS.includes(canonical as typeof CLAUDE_MODELS[number])) throw new WireError('Choose an allowed official Anthropic model');
-          selection.model = `${canonical}[1m]`; proxyUrl = subscriptionUrl(profileId);
+          selection.model = `${canonical}[1m]`; proxyUrl = subscriptionUrl(profileId, deps.settings.consoleUrl);
         }
         const { model, prefix } = selection;
-        const apiKeyHint = query.get('apiKeyHint') ?? 'your-proxy-api-key';
         let functionName = query.get('name') ?? 'cliproxy';
         if (profileId) functionName = (await deps.profiles.get(profileId)).name;
         if (prefix) assertValidPrefix(prefix);
         return sendJson(res, 200, {
-          snippet: zshSnippet({ functionName, proxyUrl, model, prefix, apiKeyHint, pinModelDefaults: true }),
+          snippet: zshSnippet({ functionName, proxyUrl, model, prefix, pinModelDefaults: true }),
         });
       }
 

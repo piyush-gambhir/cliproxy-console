@@ -124,7 +124,7 @@ beforeEach(async () => {
   accountFiles = [{id: 'a.json', name: 'a.json', provider: 'claude', status: 'active', disabled: false}];
   registeredModels = {}; failRouting = ''; usageStatus = 200;
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cliproxy-app-'));
-  const settings = new SettingsStore(path.join(tmp, 'config.json'));
+  const settings = new SettingsStore(path.join(tmp, 'settings.sqlite'), {env: {}});
   await settings.update({ proxyUrl, managementKey: MGMT_KEY });
   const app = createApp({
     settings,
@@ -192,9 +192,20 @@ describe('GET /api/settings', () => {
     assert.equal(res.status, 200);
     assert.equal(body.proxyUrl, proxyUrl);
     assert.equal(body.hasManagementKey, true);
-    assert.equal(body.keySource, 'file');
+    assert.equal(body.keySource, 'sqlite');
     assert.equal(JSON.stringify(body).includes(MGMT_KEY), false);
   });
+});
+
+test('configured client key is write-only in settings and used for model discovery without reading proxy keys', async () => {
+  const response = await fetch(`${consoleUrl}/api/settings`, {method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({clientApiKey:'client-key-1'})});
+  const view = await jsonOf(response);
+  assert.equal(view.clientKeySource, 'sqlite');
+  assert.equal(JSON.stringify(view).includes('client-key-1'), false);
+  seen = [];
+  assert.equal((await get('/api/proxy/models')).status, 200);
+  assert.deepEqual(seen.map(s => s.url), ['/v1/models']);
+  assert.equal(seen[0]?.auth, 'Bearer client-key-1');
 });
 
 describe('ANY /api/mgmt/*', () => {
@@ -237,7 +248,7 @@ describe('ANY /api/mgmt/*', () => {
   });
 
   test('turns a rejected key into a 503 with a different code', async () => {
-    const settings = new SettingsStore(path.join(tmp, 'other.json'));
+    const settings = new SettingsStore(path.join(tmp, 'other.sqlite'), {env: {}});
     await settings.update({ proxyUrl, managementKey: 'wrong' });
     const app = createApp({
       settings,
@@ -374,15 +385,17 @@ describe('/api/wire', () => {
       assert.equal(plan.env.ANTHROPIC_BASE_URL, proxyUrl);
       await assert.rejects(fs.stat(plan.file));
 
+      await fetch(`${consoleUrl}/api/settings`, {method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({clientApiKey: 'client-key-1'})});
       const written = await fetch(`${consoleUrl}/api/wire`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({...payload, apiKey: ''}),
       });
       const result = await jsonOf(written);
       assert.equal(written.status, 200);
       const onDisk = JSON.parse(await fs.readFile(result.file, 'utf8'));
       assert.deepEqual(onDisk.env, plan.env);
+      assert.equal((await fs.stat(result.file)).mode & 0o777, 0o600);
 
       const targets = await jsonOf(await get('/api/targets'));
       assert.equal(targets.recents[0].path, dir);
@@ -421,11 +434,11 @@ describe('GET /api/wire/snippet', () => {
     });
     const profile = await jsonOf(created);
     const res = await get(
-      `/api/wire/snippet?profile=${profile.id}&model=claude-opus-5&prefix=work&apiKeyHint=sk-x`,
+      `/api/wire/snippet?profile=${profile.id}&model=claude-opus-5&prefix=work`,
     );
     const { snippet } = await jsonOf(res);
     assert.match(snippet, /^Day-job\(\) \{$/m);
-    assert.match(snippet, /ANTHROPIC_MODEL="work\/claude-opus-5"/);
+    assert.match(snippet, /ANTHROPIC_MODEL='work\/claude-opus-5'/);
   });
 });
 
@@ -453,7 +466,7 @@ describe('routing controls', () => {
   test('manual is the default and preference survives a new store', async () => {
     assert.equal((await jsonOf(await get('/api/settings'))).routingMode, 'manual');
     assert.equal((await putJson('/api/settings', {routingMode: 'automatic'})).status, 400);
-    assert.equal((await new SettingsStore(path.join(tmp, 'config.json')).publicView()).routingMode, 'manual');
+    assert.equal((await new SettingsStore(path.join(tmp, 'settings.sqlite')).publicView()).routingMode, 'manual');
     assert.equal((await putJson('/api/settings', {routingMode: 'anything'})).status, 400);
   });
   test('validates the entire patch before mutating and rejects unknown settings', async () => {

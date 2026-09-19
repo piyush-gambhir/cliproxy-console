@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import {fileURLToPath} from 'node:url';
 import { defineConfig } from 'vite';
+import {consolePort} from '../server/src/runtime.ts';
 
 // No @vitejs/plugin-react on purpose: Vite compiles .tsx with esbuild out of the box and
 // the automatic JSX runtime comes from tsconfig's "jsx": "react-jsx". The only thing we
@@ -12,7 +13,7 @@ export default defineConfig({
     port: 8321,
     strictPort: true,
     proxy: {
-      '/api': { target: 'http://127.0.0.1:8320', changeOrigin: false },
+      '/api': { target: `http://127.0.0.1:${consolePort()}`, changeOrigin: false },
     },
   },
   build: {

@@ -6,9 +6,10 @@ import type {ProfileStore} from './profiles.ts';
 import {resolveSelection, readRouting} from './routing.ts';
 import {sendJson} from './http.ts';
 import {WireError} from './wire.ts';
+import {consoleOrigin} from './runtime.ts';
 
 export const CLAUDE_MODELS = ['claude-opus-5', 'claude-fable-5-1'] as const;
-export function subscriptionUrl(profile: string, origin = 'http://127.0.0.1:8320') {
+export function subscriptionUrl(profile: string, origin = consoleOrigin()) {
   return `${origin}/inference/${encodeURIComponent(profile)}`;
 }
 export async function relayInference(req: IncomingMessage, res: ServerResponse, profile: string, endpoint: string, proxyUrl: string, mgmt: MgmtClient, profiles: ProfileStore) {

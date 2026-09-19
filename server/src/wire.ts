@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { resolveUserDir, tildify } from './paths.ts';
+import {writeJsonFile} from './json-store.ts';
 
 export type WireTarget = 'project' | 'profile-global';
 
@@ -155,9 +156,9 @@ export async function applyWire(input: WireInput, now: Date = new Date()): Promi
     const stamp = now.toISOString().replace(/[:.]/g, '-');
     backupFile = `${plan.file}.bak-${stamp}`;
     await fs.copyFile(plan.file, backupFile);
+    await fs.chmod(backupFile, 0o600);
   }
-  await fs.mkdir(path.dirname(plan.file), { recursive: true });
-  await fs.writeFile(plan.file, `${JSON.stringify(plan.merged, null, 2)}\n`, 'utf8');
+  await writeJsonFile(plan.file, plan.merged);
   return {
     ...plan,
     backupFile,
@@ -171,22 +172,23 @@ export function zshSnippet(opts: {
   proxyUrl: string;
   model: string;
   prefix?: string;
-  apiKeyHint: string;
   pinModelDefaults?: boolean;
 }): string {
   const model = addressableModel(opts.model, opts.prefix);
-  const fn = opts.functionName.replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+|-+$/g, '') || 'cliproxy';
+  const name = opts.functionName.replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+|-+$/g, '') || 'cliproxy';
+  const fn = /^[A-Za-z_]/.test(name) ? name : `cliproxy-${name}`;
   const base = opts.proxyUrl.replace(/\/+$/, '');
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   // Env vars are scoped to the single `claude` invocation on purpose: exporting them
   // would make every later plain `claude` in the same shell go through the proxy too.
   return [
-    `# cliproxy-console: run Claude Code against the "${opts.functionName}" profile`,
+    `# cliproxy-console: run Claude Code with profile ${fn}`,
     `# Proxy vars apply only to this call; plain \`claude\` stays direct.`,
     `${fn}() {`,
-    `  ANTHROPIC_BASE_URL="${base}" \\`,
-    `  ANTHROPIC_AUTH_TOKEN="\${CLIPROXY_API_KEY:-${opts.apiKeyHint}}" \\`,
-    `  ANTHROPIC_MODEL="${model}" \\`,
-    ...(opts.pinModelDefaults ? MODEL_DEFAULT_KEYS.map(key => `  ${key}="${model}" \\`) : []),
+    `  ANTHROPIC_BASE_URL=${quote(base)} \\`,
+    '  ANTHROPIC_AUTH_TOKEN="${CLIPROXY_API_KEY:?Set CLIPROXY_API_KEY to a proxy client key first}" \\',
+    `  ANTHROPIC_MODEL=${quote(model)} \\`,
+    ...(opts.pinModelDefaults ? MODEL_DEFAULT_KEYS.map(key => `  ${key}=${quote(model)} \\`) : []),
     `  claude "$@"`,
     `}`,
   ].join('\n');

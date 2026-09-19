@@ -15,7 +15,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse
 
-ROOT = Path(os.environ.get('CLIPROXY_SERVICE_DIR', str(Path.home() / '.cliproxy-console' / 'proxy-service'))).expanduser().resolve()
+ROOT = Path(os.environ.get('CLIPROXY_SERVICE_DIR', str(Path(os.environ.get('CLIPROXY_DATA_DIR', str(Path.home() / '.cliproxy-console'))).expanduser() / 'proxy-service'))).expanduser().resolve()
 SETTINGS_FILE = ROOT / 'service-settings.json'
 OPTIONS = json.loads(SETTINGS_FILE.read_text()) if SETTINGS_FILE.is_file() else {}
 

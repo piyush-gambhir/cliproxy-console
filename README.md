@@ -61,7 +61,8 @@ An unset management secret can make CLIProxyAPI's management endpoints return
 404. A client API key is not a substitute for the management key.
 
 For development, run `npm run dev`: the API listens on port **8320**, and Vite on
-**8321**. The generated Claude routes use port 8320; retain that port for client setup.
+**8321**. Set `PORT` to choose a different API port; generated client routes and the
+Vite API proxy follow it. Restart clients after changing their gateway URL.
 
 ## Choosing a subscription
 
@@ -84,8 +85,9 @@ available in **Advanced connections** or CLIProxyAPI's own management panel.
 
 The command scopes connection settings to that invocation and pins default and
 subagent model roles to the selected subscription. It does not embed a key in the
-copied command. Advanced connections can also generate settings or a shell function;
-those previews can contain the client key and should not be shared.
+copied command. Advanced connections can also generate settings or a shell function. Shell functions
+read the key from your shell environment. Settings previews and written client files
+can contain the client key and should not be shared.
 
 See the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference) for
 native flags and session controls. A request failing over to another subscription is
@@ -112,18 +114,60 @@ See [SECURITY.md](SECURITY.md) for the trust boundary and private reporting.
 
 | Setting or data | Location |
 | --- | --- |
-| Console name, proxy URL, management key | `~/.cliproxy-console/config.json` |
+| Console name, proxy URL, management key, optional client key | `~/.cliproxy-console/settings.sqlite` |
 | Profile names, account mapping, prefix records, notes | `~/.cliproxy-console/profiles.json` |
 | Normalized usage snapshots | `~/.cliproxy-console/subscription-usage.json` |
 | Recent project paths | `~/.cliproxy-console/recent-paths.json` |
 | Provider OAuth credentials | CLIProxyAPI's configured auth directory, commonly `~/.cli-proxy-api/` |
 | Desktop gateway configuration | macOS `~/Library/Application Support/Claude-3p/configLibrary/` |
 
-`CLIPROXY_URL` and `CLIPROXY_MGMT_KEY` override saved proxy connection settings.
-Set them in your process environment; `.env` files are not automatically loaded.
-The management key stays on the server. Client keys can be returned to the browser
-for explicit client setup. Configuration writes use restricted file permissions;
-client settings are backed up before replacement.
+Open **Settings** to save your own name, proxy connection, and keys. No accounts,
+keys, personal names, or machine paths are bundled. The default name is **CLIProxy
+Console**; account labels are user-created profiles, separate from model IDs.
+
+Configuration precedence is **nonempty environment variable → saved SQLite value →
+generic default**. Settings shows which source is active. Environment values are
+never copied to SQLite by a save. Empty key fields in the API clear saved keys;
+clearing a saved key does not remove an environment override. The UI's **Clear
+stored key** buttons make this distinction explicit.
+
+| Environment variable | Purpose / default |
+| --- | --- |
+| `CLIPROXY_DISPLAY_NAME` | Console branding; default `CLIProxy Console` |
+| `CLIPROXY_URL` | Proxy base URL; default `http://127.0.0.1:8317` |
+| `CLIPROXY_MGMT_KEY` | Proxy management key; unset by default |
+| `CLIPROXY_API_KEY` | Optional proxy client key for model discovery and client setup |
+| `CLIPROXY_DATA_DIR` | Console runtime directory; default `~/.cliproxy-console` |
+| `CLIPROXY_SETTINGS_DB` | SQLite file; default `<data directory>/settings.sqlite` |
+| `PORT` | Local API port; default `8320` |
+| `CLIPROXY_CONSOLE_URL` | Client-facing loopback origin; default `http://127.0.0.1:<PORT>` |
+| `CLIPROXY_DESKTOP_CONFIG_DIR` | Override the Desktop `configLibrary` directory |
+| `CLAUDE_CONFIG_DIR` | Shared Claude CLI config directory; default `~/.claude` |
+| `CLIPROXY_AUTH_DIR`, `CLIPROXY_CONFIG` | Additional proxy credential paths protected from client-setup writes |
+
+See [.env.example](.env.example) for a template. Set variables in the process
+environment; `.env` files are **not loaded automatically**. The console process and
+Claude CLI have separate environments: a key saved in Settings is not exported to
+your terminal. Set `CLIPROXY_API_KEY` in the shell running a copied launch command.
+A configured client key must already exist in CLIProxyAPI; saving it here does not
+create or rotate upstream keys. Without it, model discovery uses the proxy's first
+configured client key. Inference always authenticates the requesting client's key.
+Provider OAuth credentials remain in CLIProxyAPI's auth store.
+
+On first startup, the console migrates `<data directory>/config.json` into SQLite
+transactionally and renames the JSON to `config.json.migrated` as a private backup.
+Migration preserves the existing name, URL and management key. A migration marker
+prevents stale JSON from overwriting later database changes. Invalid legacy data
+stops startup rather than silently discarding settings. Keep the backup until you
+have verified your setup, then remove it if no longer needed.
+
+SQLite and migration backups use owner-only file permissions (`0600`). The database
+is **not encrypted**; protect it like a password file. Exclude it and backups from
+shared folders and public archives. Settings responses report key presence and
+source only. Explicit client setup previews can return the client key, and written
+client settings are private and backed up before replacement. Profiles, usage
+snapshots, and recent paths remain local JSON files; changing the settings backend
+does not change subscriptions, account IDs, routing, or conversation history.
 
 None of these runtime directories belong in Git. See [.gitignore](.gitignore).
 

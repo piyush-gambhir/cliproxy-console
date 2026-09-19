@@ -30,3 +30,6 @@ logs/
 profiles.json
 subscription-usage.json
 recent-paths.json
+
+*.migrated
+*.db-*
