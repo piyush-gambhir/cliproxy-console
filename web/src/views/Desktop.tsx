@@ -8,9 +8,8 @@ import {Collapsible, CollapsibleContent, CollapsibleTrigger} from '@/components/
 import {SelectField, SelectChoice, FormInput} from '@/components/controls';
 import {Chip, CodeBlock, Field, Notice} from '@/components/ui';
 import {SubscriptionUsage} from '@/components/SubscriptionUsage';
-import {api, accountStatus} from '../api';
+import {api, accountStatus, request} from '../api';
 import type {AuthFile, Profile, ClaudeModelOption} from '../types';
-import {claudeCommand} from '../lib/claude-command';
 
 interface Model {name: string; labelOverride: string; maxEffort?: string; supports1m?: boolean; prefer1m?: boolean}
 interface State {cliProfile:string;inferenceUrl:string;gateway?:import('../types').GatewayStatus;claudeBackgroundModel:string;claudeSubagentModel:string;roleSettingsMatch?:boolean;claudeConfigDir: string; allowedModels: ClaudeModelOption[]; cliEffort: string; setupRequired?: boolean; oneMillionConfigured?: boolean; consoleUrl: string; profile: string; autoMode: boolean; models: (Model|string)[]; defaultEffort: string; alwaysDefault: boolean; gatewayUrl: string; catalog: {profile: Profile; models: string[]; error?: string}[]}
@@ -22,10 +21,7 @@ function configModels(data: State): Model[] {
     .map(m => {const option=data.allowedModels.find(o=>o.id===m.name)!;return {...m,maxEffort:!m.maxEffort || EFFORTS.indexOf(m.maxEffort)>EFFORTS.indexOf(option.maxEffort) ? option.maxEffort : m.maxEffort,supports1m:true,prefer1m:true};});
 }
 async function call(method = 'GET', body?: unknown) {
-  const res = await fetch('/api/desktop', {method, headers:{'Content-Type':'application/json'}, ...(body ? {body:JSON.stringify(body)} : {})});
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Could not read Claude configuration');
-  return data;
+  return request<State & {backup:string}>('/api/desktop', {method,...(body?{body:JSON.stringify(body)}:{})});
 }
 function requestedProfile() {return new URLSearchParams(window.location.hash.split('?')[1]).get('profile');}
 
@@ -90,9 +86,14 @@ export function Desktop({onOpenSettings}: {onOpenSettings: () => void}) {
   const dirty = state && (!state.roleSettingsMatch || state.gatewayUrl !== `${state.inferenceUrl}/inference/${profile}` || !state.oneMillionConfigured || profile !== state.profile || autoMode !== state.autoMode || effort !== state.defaultEffort || always !== state.alwaysDefault || JSON.stringify(normalize(models)) !== JSON.stringify(normalize(state.models)));
   const labelError = models.some(m => !m.labelOverride.trim() || m.labelOverride.length > 200) ? 'Each model needs a display label of 1–200 characters.' : '';
   const canSave = Boolean(state && !state.setupRequired && dirty && !busy && !unavailable && !modelError && !effortError && !labelError);
-  let cliCommand='',cliCommandError='';
-  try {if(state && selected && serves(cliModel) && !unavailable && !cliEffortError) cliCommand=claudeCommand(selected.profile.id,cliModel,cliEffort,state.inferenceUrl,state.claudeConfigDir,{backgroundModel:state.claudeBackgroundModel,subagentModel:state.claudeSubagentModel});}
-  catch {cliCommandError='The local Claude launcher requires a loopback proxy URL. Update Settings to generate a command.';}
+  const [cliCommand,setCliCommand]=useState(''),[cliCommandError,setCliCommandError]=useState('');
+  useEffect(()=>{
+    let live=true;setCliCommand('');setCliCommandError('');
+    if(client==='cli' && state && profile && cliModel && !unavailable && !cliEffortError){
+      request<{command:string}>('/api/cli-command',{method:'POST',body:JSON.stringify({profile,model:cliModel,effort:cliEffort})}).then(value=>{if(live)setCliCommand(value.command);},e=>{if(live)setCliCommandError(e.message);});
+    }
+    return()=>{live=false;};
+  },[client,state,profile,cliModel,cliEffort,unavailable,cliEffortError]);
   const selectedModelLabel = MODELS.find(m => m.name === models[0]?.name)?.label ?? 'No model';
 
   function edit() {setSaved(false);}

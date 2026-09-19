@@ -1,37 +1,22 @@
 # Security
 
-## Reporting a vulnerability
+This repository is a frontend. CLIProxyAPI is the security and persistence boundary.
 
-Use [GitHub private vulnerability reporting](https://github.com/piyush-gambhir/cliproxy-console/security/advisories/new)
-when it is enabled in the repository's Security tab. If it is unavailable, open an
-issue requesting a private contact method, without including vulnerability details.
-Do not post credentials, full configuration files, OAuth JSON, or private account
-information in public issues. Include a minimal reproduction using fake credentials
-and the affected commit. The current `main` branch is the maintained version;
-there is no guaranteed response or support timeline.
+- Every administration request uses CLIProxyAPI management authentication.
+- Local client-file operations additionally require an actual loopback peer and a
+  localhost Host/Origin. Forwarded IP headers do not grant local file access.
+- The management key is kept in browser tab session storage and sent only to the
+  same-origin Management API. Lock the console to clear it. Do not use untrusted
+  extensions or scripts in this administrative browser context.
+- Provider OAuth tokens remain in the proxy auth store. Public settings never return
+  keys. Explicit client setup previews and the API-key management endpoint can show
+  client keys to the authenticated administrator.
+- The proxy owns private SQLite storage, credential files, atomic writes, backups,
+  path restrictions, request metadata retention, and routing enforcement.
+- Request history excludes prompts and response text. Token counts do not establish
+  subscription quota or billing eligibility.
 
-## Deployment boundary
-
-This is a local, single-user administration tool. It binds to `127.0.0.1` and has
-no console login. Other software running as the same local user can access its
-management features. Host/Origin validation reduces cross-site and DNS-rebinding
-exposure; it is not a substitute for authentication on an internet-facing service.
-Do not publish the running console through a tunnel, reverse proxy, or shared host.
-
-The console accepts management/client keys from environment variables or its local
-`~/.cliproxy-console/settings.sqlite` database. SQLite and migration backups use
-owner-only permissions, but are not encrypted. Environment overrides are not
-persisted by saves. Settings never returns either key, and the management key
-stays server-side. Some
-Advanced connections previews intentionally expose proxy client keys to configure
-clients. Treat those previews as sensitive. Provider credentials stay in the
-proxy's auth store. Backups of local configuration may contain secrets.
-
-The console blocks raw proxy configuration and credential-download endpoints.
-The native gateway pins inference to a specific enabled Claude credential in the proxy, independently of the console. Native route management and receipt reads require the management key; inference requires a proxy client key. The compatibility relay on unmodified upstream validates unique prefixes and rejects automatic retry/fallback settings.
-
-The request-history database and bounded proxy receipt journal store model, account-route, session/agent IDs, token counts and error types. They do not store prompts, responses or keys. These metadata are still private and should not be committed or shared. Console retention does not control separate proxy request logs.
-
-This project does not establish provider eligibility or override provider rules,
-quotas, billing, or organization policy. Public source code does not make a local
-installation, its configuration, or its accounts public.
+No secrets or runtime data should be committed to this frontend repository. Report
+vulnerabilities privately to the repository owner; do not include credentials or
+conversation content in public issues. Backend reports belong to the maintained
+CLIProxyAPI fork.

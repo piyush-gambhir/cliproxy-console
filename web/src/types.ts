@@ -1,8 +1,4 @@
-/**
- * Shapes the console's own server returns. The auth-file shape mirrors
- * server/src/mgmt-contract.ts -> ENDPOINTS.listAuthFiles, which was read out of
- * internal/api/handlers/management/auth_files.go:326-470.
- */
+/** CLIProxyAPI native management response types. */
 
 export interface ClaudeModelOption {id: string; label: string; contextWindow: 1000000; maxEffort: 'low'|'medium'|'high'|'xhigh'|'max'}
 export interface Settings {

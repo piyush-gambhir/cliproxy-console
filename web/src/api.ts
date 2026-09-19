@@ -26,10 +26,15 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const destination=path.startsWith('/api/mgmt/') ? path.replace('/api/mgmt/','/v0/management/') : path.replace('/api/','/v0/management/console/');
+  const headers=new Headers(init?.headers);
+  if(init?.body)headers.set('Content-Type','application/json');
+  const key=sessionStorage.getItem('cliproxy.managementKey');
+  if(key)headers.set('Authorization',`Bearer ${key}`);
+  const res = await fetch(destination, {
     ...init,
-    headers: init?.body ? { 'Content-Type': 'application/json', ...(init?.headers ?? {}) } : init?.headers,
+    headers,
   });
   const text = await res.text();
   let parsed: unknown = undefined;
@@ -41,6 +46,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
   if (!res.ok) {
+    if(res.status===401){sessionStorage.removeItem('cliproxy.managementKey');window.dispatchEvent(new Event('proxy-auth-required'));}
     const payload = (parsed ?? {}) as { error?: string; code?: string };
     throw new ApiError(payload.error ?? text ?? `request failed (${res.status})`, res.status, payload.code);
   }

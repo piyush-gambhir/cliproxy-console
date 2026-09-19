@@ -6,7 +6,7 @@ import { Drawer, ErrorLine, Field, Notice } from './ui.tsx';
 
 /**
  * Providers and their auth-url routes, mirroring
- * server/src/mgmt-contract.ts -> OAUTH_PROVIDERS. xAI and Kimi are device flows
+ * CLIProxyAPI management OAuth endpoints. xAI and Kimi are device flows
  * (auth_files_provider_oauth.go:512-718) and ignore is_webui.
  */
 const PROVIDERS = [

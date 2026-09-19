@@ -20,9 +20,9 @@ export function Requests(){
   {error&&<Notice tone="err" title="Could not load history"><p role="alert">{error}</p></Notice>}
   {history&&<>
    <Notice tone={history.gateway.error||history.gateway.storageError||!history.gateway.ready?'warn':'plain'} title={history.gateway.ready?'Requests run directly in the proxy':'Native gateway not ready'}>
-    <p>{history.gateway.ready?'Saved account routes work without the console. The console imports request metadata every 10 seconds.':'Update the proxy to a version supporting account routes. Older compatibility requests have no verified receipts.'}</p>
+    <p>{history.gateway.ready?'CLIProxyAPI owns routing and saves request metadata directly. This page refreshes every 10 seconds.':'Update the proxy to a version supporting account routes. Older compatibility requests have no verified receipts.'}</p>
     {history.gateway.error&&<p>{history.gateway.error}</p>}{history.gateway.storageError&&<p>{history.gateway.storageError}</p>}
-    <p className="microcopy">Retained for {history.gateway.receiptRetentionDays} days. Last import: {history.gateway.syncedAt?new Date(history.gateway.syncedAt).toLocaleString():'never'}. The proxy buffers up to 5,000 recent receipts while the console is closed.</p>
+    <p className="microcopy">Retained by CLIProxyAPI for {history.gateway.receiptRetentionDays} days, including while this page is closed.</p>
    </Notice>
    <div className="request-filter"><Field label="Subscription"><SelectField value={profile} onChange={e=>setProfile(e.target.value)}><SelectChoice value="">All subscriptions</SelectChoice>{history.profiles.map(p=><SelectChoice key={p.id} value={p.id}>{p.name}</SelectChoice>)}</SelectField></Field></div>
    <p className="microcopy">Latest 200 finished requests. Token counts come from provider responses and do not measure your weekly quota. “1M configured” is a setting; “Above 200K observed” confirms a completed request used more than 200K input tokens, not the full 1M maximum.</p>

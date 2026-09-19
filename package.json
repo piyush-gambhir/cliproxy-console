@@ -3,26 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local console for managing CLIProxyAPI accounts as named profiles and wiring Claude Code to them.",
+  "description": "Frontend for CLIProxyAPI native management APIs",
   "engines": {
     "node": ">=24"
   },
   "workspaces": [
-    "server",
     "web"
   ],
   "scripts": {
-    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "dev": "npm run dev -w web",
     "build": "npm run build -w web",
-    "start": "npm run start -w server",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
-    "test": "npm run test -w server",
-    "test:routing-integration": "node scripts/verify-routing.mjs",
-    "test:service": "python3 -B -m unittest discover -s scripts/tests",
-    "test:gateway-integration": "node scripts/verify-native-gateway.mjs"
+    "start": "npm run preview -w web",
+    "typecheck": "npm run typecheck -w web",
+    "test": "node --test web/tests/*.test.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
     "typescript": "^5.9.3"
   },
   "license": "MIT",

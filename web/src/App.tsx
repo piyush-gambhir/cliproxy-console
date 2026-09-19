@@ -97,6 +97,7 @@ export function App() {
         <Button className="btn sm" onClick={() => setShowSettings(true)}>
           Settings
         </Button>
+        <Button variant="ghost" onClick={()=>{sessionStorage.removeItem('cliproxy.managementKey');window.dispatchEvent(new Event('proxy-auth-required'));}}>Lock console</Button>
       </header>
 
       <div className="body">
@@ -107,7 +108,7 @@ export function App() {
             </Button>
           ))}
           <div className="nav-foot">
-            {settings?.hasManagementKey ? 'management key set' : 'no management key'}
+            {settings?.hasManagementKey ? 'Connected to CLIProxyAPI' : 'Authentication required'}
             {settings ? (
               <>
                 <br />
@@ -144,7 +145,7 @@ export function App() {
             setSettings(next);
             setShowSettings(false);
             window.dispatchEvent(new Event('console-settings-saved'));
-            if(next.gateway?.error)toast('err','Settings saved; proxy sync pending',next.gateway.error);else toast('ok', 'Settings saved');
+            toast('ok', 'Saved in CLIProxyAPI');
           }}
         />
       ) : null}

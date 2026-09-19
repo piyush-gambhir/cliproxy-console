@@ -17,17 +17,14 @@ export function SettingsDrawer({
   onClose: () => void;
   onSaved: (next: Settings) => void;
 }) {
-  const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl);
   const [displayName, setDisplayName] = useState(settings.displayName);
   const [models, setModels] = useState(settings.claudeModels);
   const [backgroundModel,setBackgroundModel] = useState(settings.claudeBackgroundModel);
   const [subagentModel,setSubagentModel] = useState(settings.claudeSubagentModel);
   const [retention,setRetention] = useState(settings.receiptRetentionDays);
   const [cliEffort, setCliEffort] = useState(settings.cliEffort);
-  const [consoleUrl, setConsoleUrl] = useState(settings.consoleUrl);
   const [claudeConfigDir, setClaudeConfigDir] = useState(settings.claudeConfigDir);
   const [desktopConfigDir, setDesktopConfigDir] = useState(settings.desktopConfigDir);
-  const [key, setKey] = useState('');
   const [clientKey, setClientKey] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -42,27 +39,24 @@ export function SettingsDrawer({
       if(subagentModel !== settings.claudeSubagentModel) patch.claudeSubagentModel=subagentModel;
       if(retention !== settings.receiptRetentionDays) patch.receiptRetentionDays=retention;
       if (cliEffort !== settings.cliEffort) patch.cliEffort = cliEffort;
-      if (consoleUrl !== settings.consoleUrl) patch.consoleUrl = consoleUrl;
       if (claudeConfigDir !== settings.claudeConfigDir) patch.claudeConfigDir = claudeConfigDir;
       if (desktopConfigDir !== settings.desktopConfigDir) patch.desktopConfigDir = desktopConfigDir;
       if (displayName.trim() !== settings.displayName) patch.displayName = displayName.trim();
-      if (proxyUrl.trim() !== settings.proxyUrl) patch.proxyUrl = proxyUrl.trim();
       if (clientKey !== '') patch.clientApiKey = clientKey;
-      if (key !== '') patch.managementKey = key;
       onSaved(await api.saveSettings(patch));
     } catch (err) {
       setError(err);
     } finally {
       setBusy(false);
     }
-  }, [backgroundModel, subagentModel, retention, key, clientKey, settings, onSaved, proxyUrl, displayName, models, cliEffort, consoleUrl, claudeConfigDir, desktopConfigDir]);
+  }, [backgroundModel, subagentModel, retention, clientKey, settings, onSaved, displayName, models, cliEffort, claudeConfigDir, desktopConfigDir]);
 
-  const clearKey = useCallback(async (field: 'managementKey' | 'clientApiKey') => {
+  const clearKey = useCallback(async (field: 'clientApiKey') => {
     setBusy(true);
     setError(null);
     try {
       onSaved(await api.saveSettings({ [field]: '' }));
-      if (field === 'managementKey') setKey(''); else setClientKey('');
+      setClientKey('');
     } catch (err) {
       setError(err);
     } finally {
@@ -89,37 +83,7 @@ export function SettingsDrawer({
       <Field label="Console name" hint={settings.sources.displayName === 'env' ? 'Set by CLIPROXY_DISPLAY_NAME. Change the process environment to override it.' : 'Shown in the header and browser tab; saved only on this computer.'}>
         <FormInput disabled={settings.sources.displayName === 'env'} value={displayName} maxLength={80} onChange={e => setDisplayName(e.target.value)} />
       </Field>
-      <Field label="Proxy URL" hint={settings.sources.proxyUrl === 'env' ? 'Set by CLIPROXY_URL. Change the process environment to override it.' : 'Where CLIProxyAPI listens.'}>
-        <FormInput className="mono" type="text" disabled={settings.sources.proxyUrl === 'env'} value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} />
-      </Field>
-
-      <Field
-        label="Management key"
-        hint={
-          settings.keySource === 'env'
-            ? 'Currently taken from $CLIPROXY_MGMT_KEY, which overrides anything saved here.'
-            : settings.hasManagementKey
-              ? 'A key is stored. Type a new one to replace it; leave blank to keep it.'
-              : 'Must match remote-management.secret-key in the proxy config.'
-        }
-      >
-        <FormInput
-          className="mono"
-          type="password"
-          autoComplete="off"
-          placeholder={settings.hasManagementKey ? '•••••••• (unchanged)' : 'paste the secret key'}
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-        />
-      </Field>
-
-      {settings.hasStoredManagementKey ? (
-        <div className="row">
-          <Button className="btn sm danger" disabled={busy} onClick={() => void clearKey('managementKey')}>
-            Clear stored key
-          </Button>
-        </div>
-      ) : null}
+      <Notice tone="plain" title="Connected directly to CLIProxyAPI"><p className="mono">{settings.proxyUrl}</p><p>The proxy owns these settings. Your management key authenticates this browser tab and is never copied into application settings.</p></Notice>
 
       <Field label="Client API key (optional)" hint={settings.clientKeySource === 'env'
         ? 'Currently taken from CLIPROXY_API_KEY. The environment overrides any saved value.'
@@ -156,7 +120,6 @@ export function SettingsDrawer({
       <Collapsible className="settings-section">
         <CollapsibleTrigger asChild><Button variant="secondary">Client connections and folders</Button></CollapsibleTrigger>
         <CollapsibleContent className="settings-fields">
-          <Field label="Console URL for clients" hint="Compatibility endpoint for older clients. Native account routes use the proxy URL directly. Reapply client setup after changing it."><FormInput className="mono" disabled={settings.sources.consoleUrl === 'env'} value={consoleUrl} onChange={e => setConsoleUrl(e.target.value)}/></Field>
           <Field label="Claude CLI configuration folder" hint="Shared local profile. Choosing another folder does not move conversation history."><FormInput className="mono" disabled={settings.sources.claudeConfigDir === 'env'} value={claudeConfigDir} onChange={e => setClaudeConfigDir(e.target.value)}/></Field>
           <Field label="Claude Desktop configuration folder" hint="Select the existing configLibrary directory containing _meta.json."><FormInput className="mono" disabled={settings.sources.desktopConfigDir === 'env'} value={desktopConfigDir} onChange={e => setDesktopConfigDir(e.target.value)}/></Field>
           <p className="microcopy">Fields controlled by the server environment are locked. Desktop and CLI model, subscription, effort, and permission defaults are managed in Claude setup. Proxy routing is managed in Request settings.</p>
