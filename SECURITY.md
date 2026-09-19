@@ -2,7 +2,9 @@
 
 ## Reporting a vulnerability
 
-Use [GitHub private vulnerability reporting](https://github.com/piyush-gambhir/cliproxy-console/security/advisories/new).
+Use [GitHub private vulnerability reporting](https://github.com/piyush-gambhir/cliproxy-console/security/advisories/new)
+when it is enabled in the repository's Security tab. If it is unavailable, open an
+issue requesting a private contact method, without including vulnerability details.
 Do not post credentials, full configuration files, OAuth JSON, or private account
 information in public issues. Include a minimal reproduction using fake credentials
 and the affected commit. The current `main` branch is the maintained version;
