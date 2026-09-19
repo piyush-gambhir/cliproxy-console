@@ -13,7 +13,7 @@ import type {AuthFile, Profile, ClaudeModelOption} from '../types';
 import {claudeCommand} from '../lib/claude-command';
 
 interface Model {name: string; labelOverride: string; maxEffort?: string; supports1m?: boolean; prefer1m?: boolean}
-interface State {claudeConfigDir: string; allowedModels: ClaudeModelOption[]; cliEffort: string; setupRequired?: boolean; oneMillionConfigured?: boolean; consoleUrl: string; profile: string; autoMode: boolean; models: (Model|string)[]; defaultEffort: string; alwaysDefault: boolean; gatewayUrl: string; catalog: {profile: Profile; models: string[]; error?: string}[]}
+interface State {cliProfile:string;inferenceUrl:string;gateway?:import('../types').GatewayStatus;claudeBackgroundModel:string;claudeSubagentModel:string;roleSettingsMatch?:boolean;claudeConfigDir: string; allowedModels: ClaudeModelOption[]; cliEffort: string; setupRequired?: boolean; oneMillionConfigured?: boolean; consoleUrl: string; profile: string; autoMode: boolean; models: (Model|string)[]; defaultEffort: string; alwaysDefault: boolean; gatewayUrl: string; catalog: {profile: Profile; models: string[]; error?: string}[]}
 const EFFORTS = ['low','medium','high','xhigh','max'];
 const EFFORT_LABELS = ['Low','Medium','High','Extra high','Max'];
 function configModels(data: State): Model[] {
@@ -87,10 +87,12 @@ export function Desktop({onOpenSettings}: {onOpenSettings: () => void}) {
   const effortError = effort && cap && EFFORTS.indexOf(effort) > EFFORTS.indexOf(cap) ? 'Starting effort exceeds the default model’s effort cap. Adjust it in Advanced options.' : '';
   const draft = {profile,autoMode,models,defaultEffort:effort,alwaysDefault:always};
   const normalize = (items: (Model|string)[]) => items.map(entry => {const m = typeof entry === 'string' ? {name:entry,labelOverride:entry} : entry;return [m.name,m.labelOverride,m.maxEffort || '',m.supports1m === true,m.prefer1m === true];});
-  const dirty = state && (!state.oneMillionConfigured || profile !== state.profile || autoMode !== state.autoMode || effort !== state.defaultEffort || always !== state.alwaysDefault || JSON.stringify(normalize(models)) !== JSON.stringify(normalize(state.models)));
+  const dirty = state && (!state.roleSettingsMatch || state.gatewayUrl !== `${state.inferenceUrl}/inference/${profile}` || !state.oneMillionConfigured || profile !== state.profile || autoMode !== state.autoMode || effort !== state.defaultEffort || always !== state.alwaysDefault || JSON.stringify(normalize(models)) !== JSON.stringify(normalize(state.models)));
   const labelError = models.some(m => !m.labelOverride.trim() || m.labelOverride.length > 200) ? 'Each model needs a display label of 1–200 characters.' : '';
   const canSave = Boolean(state && !state.setupRequired && dirty && !busy && !unavailable && !modelError && !effortError && !labelError);
-  const cliCommand = state && selected && serves(cliModel) && !unavailable && !cliEffortError ? claudeCommand(selected.profile.id, cliModel, cliEffort, state.consoleUrl, state.claudeConfigDir) : '';
+  let cliCommand='',cliCommandError='';
+  try {if(state && selected && serves(cliModel) && !unavailable && !cliEffortError) cliCommand=claudeCommand(selected.profile.id,cliModel,cliEffort,state.inferenceUrl,state.claudeConfigDir,{backgroundModel:state.claudeBackgroundModel,subagentModel:state.claudeSubagentModel});}
+  catch {cliCommandError='The local Claude launcher requires a loopback proxy URL. Update Settings to generate a command.';}
   const selectedModelLabel = MODELS.find(m => m.name === models[0]?.name)?.label ?? 'No model';
 
   function edit() {setSaved(false);}
@@ -113,10 +115,14 @@ export function Desktop({onOpenSettings}: {onOpenSettings: () => void}) {
       <Monitor size={18}/><div><span className="dim">Saved Desktop subscription</span><strong>{savedProfile?.name ?? (busy ? 'Loading…' : 'Not configured')}</strong></div>
       <Chip tone="plain">Manual selection</Chip><span className="dim">Saved settings do not confirm what a running session is using.</span>
     </div>
+    {state?.gateway && <Notice tone={state.gateway.ready && !state.gateway.error ? 'plain' : 'warn'} title={state.gateway.ready ? 'Direct proxy connection' : 'Console compatibility connection'}><p>{state.gateway.ready ? 'New client settings connect directly to CLIProxyAPI. Saved routes keep working when this console is closed.' : 'Update the proxy to enable persistent account routes and request history.'} <a href="#requests">Inspect actual requests →</a></p>{state.gateway.error && <p>{state.gateway.error}</p>}</Notice>}
+    {state && <p className="microcopy">Background helpers: <strong>{state.claudeBackgroundModel || models[0]?.name || 'selected main model'} · 1M</strong>. Default subagents: <strong>{state.claudeSubagentModel || models[0]?.name || 'selected main model'} · 1M</strong>. <Button variant="link" onClick={onOpenSettings}>Configure model roles</Button></p>}
+    {client==='cli' && state && <div className="row wrap"><span className="dim">Plain claude default: {catalog.find(c=>c.profile.id===state.cliProfile)?.profile.name || 'Saved Desktop subscription'}</span><Button variant="secondary" disabled={busy||Boolean(unavailable)||profile===state.cliProfile} onClick={async()=>{setBusy(true);try{await api.saveSettings({cliProfile:profile});setState(current=>current?{...current,cliProfile:profile}:current);setError('');}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>Save CLI subscription</Button></div>}
     <RadioGroup className="client-switch" aria-label="Configure a client" value={client} onValueChange={value => {setClient(value);edit();}}>
       <Label className={client === 'desktop' ? 'selected' : ''} htmlFor="client-desktop"><RadioGroupItem id="client-desktop" value="desktop"/><Monitor size={16}/> Claude Desktop</Label>
       <Label className={client === 'cli' ? 'selected' : ''} htmlFor="client-cli"><RadioGroupItem id="client-cli" value="cli"/><Terminal size={16}/> Claude CLI</Label>
     </RadioGroup>
+    {client==='cli' && cliCommandError && <Notice tone="warn" title="CLI connection unavailable"><p>{cliCommandError}</p></Notice>}
     {error && <Notice tone="err" title="Could not complete setup"><p role="alert">{error}</p></Notice>}
     {saved && <Notice tone="ok" title="Configuration saved"><p role="status">Quit and reopen Claude Desktop to load the saved subscription. Existing sessions can retain their previous model.</p>{backup && <Collapsible><CollapsibleTrigger asChild><Button size="sm" variant="ghost">Backup location <ChevronDown size={14}/></Button></CollapsibleTrigger><CollapsibleContent><code className="break-path">{backup}</code></CollapsibleContent></Collapsible>}</Notice>}
 

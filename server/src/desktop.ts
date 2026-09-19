@@ -35,9 +35,9 @@ export async function desktopCatalog(mgmt: MgmtClient, profiles: ProfileStore) {
 export async function readDesktop(directory = desktopDirectory) {
   const file = await desktopFile(directory);
   const cfg = await readJsonFile<Record<string, unknown>>(file, {});
-  return {file, oneMillionConfigured: cfg.modelDiscoveryEnabled === false && cfg.modelPrefer1mContext === true, profile: /\/inference\/([^/]+)$/.exec(String(cfg.inferenceGatewayBaseUrl))?.[1] ?? '', autoMode: cfg.autoModeEnabled === true, models: cfg.inferenceModels ?? [], defaultEffort: cfg.defaultModelEffort ?? '', alwaysDefault: cfg.alwaysStartWithDefaultModel === true, gatewayUrl: cfg.inferenceGatewayBaseUrl ?? ''};
+  return {file, oneMillionConfigured: cfg.modelDiscoveryEnabled === false && cfg.modelPrefer1mContext === true, profile: /\/inference\/([^/]+)$/.exec(String(cfg.inferenceGatewayBaseUrl))?.[1] ?? '', autoMode: cfg.autoModeEnabled === true, models: Array.isArray(cfg.inferenceModels) ? cfg.inferenceModels as (DesktopModel|string)[] : [], defaultEffort: cfg.defaultModelEffort ?? '', alwaysDefault: cfg.alwaysStartWithDefaultModel === true, gatewayUrl: cfg.inferenceGatewayBaseUrl ?? ''};
 }
-export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, proxyUrl: string, body: Record<string, unknown>, directory = desktopDirectory, origin = consoleOrigin(), allowedModels: ClaudeModelOption[] = DEFAULT_CLAUDE_MODELS) {
+export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, proxyUrl: string, body: Record<string, unknown>, directory = desktopDirectory, origin = consoleOrigin(), allowedModels: ClaudeModelOption[] = DEFAULT_CLAUDE_MODELS, previousOrigins: string[] = []) {
   const models = validateModels(body.models);
   if (typeof body.alwaysDefault !== 'boolean') throw new WireError('alwaysDefault must be a boolean');
   if (typeof body.defaultEffort !== 'string' || !['','low','medium','high','xhigh','max'].includes(body.defaultEffort)) throw new WireError('Invalid default effort');
@@ -56,7 +56,7 @@ export async function applyDesktop(mgmt: MgmtClient, profiles: ProfileStore, pro
   if (body.defaultEffort && EFFORTS.indexOf(body.defaultEffort as Effort) > EFFORTS.indexOf(models[0]!.maxEffort as Effort)) throw new WireError('Default effort exceeds the default model’s cap');
   const file = await desktopFile(directory);
   const cfg = await readJsonFile<Record<string, unknown>>(file, {});
-  if (cfg.inferenceProvider !== 'gateway' || (String(cfg.inferenceGatewayBaseUrl).replace(/\/$/, '') !== proxyUrl.replace(/\/$/, '') && !isConsoleRoute(String(cfg.inferenceGatewayBaseUrl), origin))) throw new WireError('Desktop must use this console’s proxy URL before applying models', 409);
+  if (cfg.inferenceProvider !== 'gateway' || (String(cfg.inferenceGatewayBaseUrl).replace(/\/$/, '') !== proxyUrl.replace(/\/$/, '') && ![origin,...previousOrigins].some(value => isConsoleRoute(String(cfg.inferenceGatewayBaseUrl), value)))) throw new WireError('Desktop must use this console’s proxy URL before applying models', 409);
   const next: Record<string, unknown> = {...cfg, inferenceGatewayBaseUrl: subscriptionUrl(profile.id, origin), autoModeEnabled: body.autoMode, inferenceModels: models, modelDiscoveryEnabled: false, modelPrefer1mContext: true, alwaysStartWithDefaultModel: body.alwaysDefault};
   if (body.defaultEffort) next.defaultModelEffort = body.defaultEffort;
   else delete next.defaultModelEffort;

@@ -6,6 +6,7 @@
 
 export interface ClaudeModelOption {id: string; label: string; contextWindow: 1000000; maxEffort: 'low'|'medium'|'high'|'xhigh'|'max'}
 export interface Settings {
+  gateway?:GatewayStatus;
   displayName: string;
   proxyUrl: string;
   hasManagementKey: boolean;
@@ -17,7 +18,11 @@ export interface Settings {
   consoleUrl: string;
   sources: Record<string, 'env' | 'sqlite' | 'default'>;
   claudeModels: ClaudeModelOption[];
+  cliProfile: string;
   cliEffort: 'low'|'medium'|'high'|'xhigh'|'max';
+  claudeBackgroundModel: string;
+  claudeSubagentModel: string;
+  receiptRetentionDays: number;
   claudeConfigDir: string;
   desktopConfigDir: string;
   configFile: string;
@@ -139,3 +144,7 @@ export interface SubscriptionUsage {
   usageBreakdown?: Array<{label: string; percent: number}>;
   breakdownCheckedAt?: string | null;
 }
+
+export interface GatewayStatus {ready:boolean;independent:boolean;inferenceUrl:string;error:string|null;storageError:string|null;syncedAt:string|null;receiptRetentionDays:number}
+export interface RequestReceipt {id:string;startedAt:string;profile:string;model:string;responseModel:string;effort:string;session:string;agent:string;parentAgent:string;endpoint:string;status:number;durationMs:number;inputTokens:number|null;outputTokens:number|null;cacheReadTokens:number|null;cacheCreationTokens:number|null;accountConfirmed:boolean;completed:boolean;contextConfigured:number;over200kObserved:boolean;errorType:string}
+export interface RequestHistory {receipts:RequestReceipt[];gateway:GatewayStatus;profiles:Profile[]}

@@ -472,3 +472,15 @@ p {margin:10px 0;color:var(--text-2)}
 .settings-fields { display: grid; gap: 1rem; padding-top: 1rem; }
 .settings-model { padding: 1rem; min-width: 0; }
 .settings-model .field:last-child { margin-bottom: 0; }
+
+/* Request receipts retain readable columns without making narrow screens scroll. */
+.request-filter { max-width: 360px; margin: 24px 0 12px; }
+.request-list { display: grid; gap: 16px; margin-top: 24px; }
+.request-card, .request-empty { padding: 22px; gap: 16px; min-width: 0; }
+.request-card time { color: var(--muted-foreground); font-size: 12px; }
+.request-tokens { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin: 0; }
+.request-tokens dt, .request-details dt { font-size: 12px; color: var(--muted-foreground); }
+.request-tokens dd { margin: 4px 0 0; font-size: 20px; font-variant-numeric: tabular-nums; }
+.request-details { display: grid; gap: 12px; margin: 12px 0 0; }
+.request-details dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width:600px) { .request-tokens { grid-template-columns:repeat(2,minmax(0,1fr)); } .request-card { padding:16px; } }

@@ -9,6 +9,7 @@ and configure Claude clients from one interface.
 
 - **Manual subscription selection.** Named accounts, unique routes, and validation
   that rejects missing, disabled, or shared account routes. No automatic account fallback.
+- **Request history.** See the selected account, requested/returned model, effort, input/cache/output tokens, failures and context evidence. Prompts, responses and keys are excluded.
 - **Usage and reset dates.** Refresh provider-reported limits on demand, see when a
   snapshot was captured, and keep manual notes separate from measured usage.
 - **Claude setup.** Configure a local Desktop gateway or generate a standard CLI
@@ -27,6 +28,7 @@ are separate projects; this console does not grant model access or additional qu
 - A running CLIProxyAPI instance with its Management API enabled. Tested against
   upstream commit `61fdfc341b96178a8dcb53f2efc46cbc341d267c`; compatibility with future
   releases should be checked using the tests below.
+- For direct account routes and request history, use the [maintained fork](https://github.com/piyush-gambhir/CLIProxyAPI/tree/piyush) with `account-gateway` support. Unmodified upstream uses the older console relay without request receipts.
 - A proxy **management key** for the console. Claude requests use a separate
   **client API key** from CLIProxyAPI.
 - Provider accounts added to CLIProxyAPI, with access to the models you intend to use.
@@ -74,17 +76,42 @@ the server selects the account-specific upstream route.
 When the chosen account is unavailable or out of quota, the request must fail on
 that account. Select another subscription yourself. Changing a Desktop configuration
 requires restarting that client; existing sessions can retain their earlier settings.
-The console shows saved configuration, not live attribution for every running session.
+Claude setup shows saved configuration. **Request history** shows observed, completed requests and confirms whether the proxy selected the intended credential. Requests still in flight and older requests made before this feature have no receipt.
+
+### Direct routing and request history
+
+With the fork, client requests go to `http://127.0.0.1:8317/inference/<profile-id>`.
+The console synchronizes account routes through the Management API when settings
+change and every 10 seconds. Inference does **not** call the Management API and
+continues when the console is closed. The proxy pins the account in its auth manager;
+an exhausted, disabled or missing account cannot fall back to another account.
+Existing port-8320 connections are relayed to these native routes for compatibility.
+Reapply client setup to make new sessions independent of the console.
+
+The proxy saves routes and a bounded receipt journal beside its config at
+`<config-file>.gateway/` (override with `CLIPROXY_ACCOUNT_GATEWAY_DIR` in the proxy
+process). Management authentication protects configuration and receipt endpoints;
+normal proxy client keys protect inference. The console imports the latest 5,000
+receipts into `<data directory>/request-history.sqlite`. History retention is
+configurable in Settings (1–365 days, default 30). If more than 5,000 requests finish
+while the console is offline, older unimported receipts may be unavailable.
+
+“1M configured” describes the requested capability. “Above 200K observed” means a
+completed message response reported input plus cache-read/write usage above 200K.
+Neither proves the full 1M maximum or remaining subscription quota. Missing provider
+usage is shown as unknown, not zero. Count-token calls do not verify long-context
+generation. Receipt retention is separate from the proxy's own request-log settings.
 
 ### Claude CLI
 
-The CLI tab generates a command for the standard `claude` binary. No private shell
+The CLI tab can save a default subscription for the optional local launcher below,
+and generates a command for the standard `claude` binary. No private shell
 wrapper or `--subscription` extension is required. Set `CLIPROXY_API_KEY` to a proxy
 client key, then run the generated command from your project folder. Client keys are
 available in **Advanced connections** or CLIProxyAPI's own management panel.
 
 The command scopes connection settings to that invocation and pins default and
-subagent model roles to the selected subscription. It does not embed a key in the
+subagent model roles to the selected subscription. Background and subagent model choices are configurable independently in Settings. It does not embed a key in the
 copied command. Advanced connections can also generate settings or a shell function. Shell functions
 read the key from your shell environment. Settings previews and written client files
 can contain the client key and should not be shared.
@@ -92,6 +119,36 @@ can contain the client key and should not be shared.
 See the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference) for
 native flags and session controls. A request failing over to another subscription is
 not enabled by changing Claude's permission or reasoning mode.
+
+### Background and subagent models
+
+Settings exposes the background helper model (`ANTHROPIC_DEFAULT_HAIKU_MODEL`) and
+default subagent model (`CLAUDE_CODE_SUBAGENT_MODEL`). Both use the allowed 1M list.
+Leaving a role on “selected main model at setup” resolves it when generating a CLI
+command or applying Desktop setup; it does not dynamically follow later model changes.
+Applying Desktop setup backs up and updates these two env values in the shared Claude
+settings file. The deprecated small-fast override is removed. Other settings and
+history are preserved. A subagent's explicit model declaration can override the default,
+but the gateway allowlist and account pin still apply. See [Anthropic's model role
+configuration](https://code.claude.com/docs/en/model-config#environment-variables).
+
+### Optional plain `claude` launcher
+
+To have plain `claude` use the saved CLI subscription while sharing your existing
+history, add a function to your shell profile pointing to this checkout:
+
+```sh
+claude() { node /absolute/path/to/cliproxy-console/scripts/claude-proxy.ts "$@"; }
+```
+
+Keep the standard Claude binary on PATH. This launcher reads local SQLite/profile
+settings and, if needed, the already configured Desktop client key. It does not call
+the console or Management API to start a session. It only connects to a loopback proxy.
+In **Claude setup → Claude CLI**, choose an account and **Save CLI subscription**.
+Use `claude --subscription 'Account name' --model opus` for a single-session override,
+or `claude --list-subscriptions` to list saved names. Model aliases resolve against
+the frontend allowlist. The launcher rejects cloud/remote-control and automatic
+fallback flags. Other clients and direct use of the underlying binary are separate.
 
 ### Models and client capabilities
 
@@ -128,6 +185,7 @@ See [SECURITY.md](SECURITY.md) for the trust boundary and private reporting.
 | Console connection, keys, models, effort defaults, client folder settings | `~/.cliproxy-console/settings.sqlite` |
 | Startup port and storage-location plan | `~/.cliproxy-console/startup.json` (fixed bootstrap location) |
 | Profile names, account mapping, prefix records, notes | `~/.cliproxy-console/profiles.json` |
+| Request metadata and token history | `<data directory>/request-history.sqlite` |
 | Normalized usage snapshots | `~/.cliproxy-console/subscription-usage.json` |
 | Recent project paths | `~/.cliproxy-console/recent-paths.json` |
 | Provider OAuth credentials | CLIProxyAPI's configured auth directory, commonly `~/.cli-proxy-api/` |
@@ -154,6 +212,8 @@ stored key** buttons make this distinction explicit.
 | `PORT` | Override the saved startup API port; default `8320` |
 | `CLIPROXY_STARTUP_FILE` | Bootstrap file location; default `~/.cliproxy-console/startup.json` |
 | `CLIPROXY_CLAUDE_MODELS` | Override the frontend model list with a JSON array of `{id,label,contextWindow:1000000,maxEffort}` |
+| `CLIPROXY_CLAUDE_BACKGROUND_MODEL`, `CLIPROXY_CLAUDE_SUBAGENT_MODEL` | Override saved model-role choices with allowed official model IDs |
+| `CLIPROXY_CLI_PROFILE` | Optional saved profile ID for the local launcher; otherwise use the Desktop subscription |
 | `CLIPROXY_CLI_EFFORT` | Override the saved default CLI effort |
 | `CLIPROXY_CONSOLE_URL` | Client-facing loopback origin; default `http://127.0.0.1:<PORT>` |
 | `CLIPROXY_DESKTOP_CONFIG_DIR` | Override the Desktop `configLibrary` directory |
@@ -217,6 +277,7 @@ npm run build
 
 # Optional: test a real proxy binary against two local fake providers.
 CLIPROXY_BIN=/absolute/path/to/cliproxyapi npm run test:routing-integration
+CLIPROXY_BIN=/absolute/path/to/cliproxyapi npm run test:gateway-integration
 ```
 
 The routing integration test uses temporary fake credentials. It verifies explicit

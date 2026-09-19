@@ -6,7 +6,9 @@ import { createApp } from './app.ts';
 import { SettingsStore } from './settings.ts';
 import { ProfileStore } from './profiles.ts';
 import { MgmtClient } from './mgmt.ts';
-import {USAGE_FILE} from './paths.ts';
+import {GatewayService} from './gateway.ts';
+import {ReceiptStore} from './receipts.ts';
+import {CONSOLE_DIR, USAGE_FILE} from './paths.ts';
 import {ServiceSettingsStore} from './service-settings.ts';
 import {prepareStartup, StartupStore} from './startup.ts';
 
@@ -24,10 +26,16 @@ const webDist = fs.existsSync(path.join(distDir, 'index.html')) ? distDir : null
 const settings = new SettingsStore();
 // Validate configuration and finish any legacy migration before accepting requests.
 await settings.publicView();
+const profiles = new ProfileStore();
+const mgmt = new MgmtClient(settings);
+const gateway = new GatewayService(settings, profiles, mgmt, new ReceiptStore(path.join(CONSOLE_DIR, 'request-history.sqlite')));
+await gateway.sync();
+const syncTimer = setInterval(() => {void gateway.sync();}, 10_000).unref();
 const app = createApp({
+  gateway,
   settings,
-  profiles: new ProfileStore(),
-  mgmt: new MgmtClient(settings),
+  profiles,
+  mgmt,
   webDist,
   usageFile: USAGE_FILE,
   startup,
@@ -46,6 +54,7 @@ server.listen(PORT, HOST, () => {
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
+    clearInterval(syncTimer);
     server.close(() => process.exit(0));
   });
 }

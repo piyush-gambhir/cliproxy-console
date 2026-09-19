@@ -50,8 +50,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const body = (value: unknown) => JSON.stringify(value);
 
 export const api = {
+  requestHistory: (profile='') => request<import('./types').RequestHistory>(`/api/requests?profile=${encodeURIComponent(profile)}`),
+  syncGateway: () => request<import('./types').GatewayStatus>('/api/gateway/sync', {method:'POST'}),
   settings: () => request<Settings>('/api/settings'),
-  saveSettings: (patch: { displayName?: string; proxyUrl?: string; managementKey?: string; clientApiKey?: string; routingMode?: 'manual'; claudeModels?: import('./types').ClaudeModelOption[]; cliEffort?: string; claudeConfigDir?: string; desktopConfigDir?: string; consoleUrl?: string }) =>
+  saveSettings: (patch: { displayName?: string; proxyUrl?: string; managementKey?: string; clientApiKey?: string; routingMode?: 'manual'; claudeModels?: import('./types').ClaudeModelOption[]; claudeBackgroundModel?:string; claudeSubagentModel?:string; receiptRetentionDays?:number; cliProfile?:string; cliEffort?: string; claudeConfigDir?: string; desktopConfigDir?: string; consoleUrl?: string }) =>
     request<Settings>('/api/settings', { method: 'PUT', body: body(patch) }),
 
   health: () => request<Health>('/api/health'),

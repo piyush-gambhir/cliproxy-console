@@ -39,6 +39,8 @@ export interface WireInput {
   proxyUrl: string;
   apiKey: string;
   pinModelDefaults?: boolean;
+  backgroundModel?: string;
+  subagentModel?: string;
 }
 
 export class WireError extends Error {
@@ -93,7 +95,7 @@ export function buildEnv(input: WireInput): WireEnv {
     ANTHROPIC_AUTH_TOKEN: input.apiKey.trim(),
     ANTHROPIC_MODEL: addressableModel(input.model, input.prefix),
     ...(input.model.endsWith('[1m]') ? {CLAUDE_CODE_DISABLE_1M_CONTEXT:'0'} : {}),
-    ...(input.pinModelDefaults ? Object.fromEntries(MODEL_DEFAULT_KEYS.map(key => [key, addressableModel(input.model, input.prefix)])) : {}),
+    ...(input.pinModelDefaults ? Object.fromEntries(MODEL_DEFAULT_KEYS.map(key => [key, addressableModel(roleModel(key,input), input.prefix)])) : {}),
   };
 }
 
@@ -174,6 +176,8 @@ export function zshSnippet(opts: {
   model: string;
   prefix?: string;
   pinModelDefaults?: boolean;
+  backgroundModel?: string;
+  subagentModel?: string;
 }): string {
   const model = addressableModel(opts.model, opts.prefix);
   const name = opts.functionName.replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+|-+$/g, '') || 'cliproxy';
@@ -190,8 +194,14 @@ export function zshSnippet(opts: {
     '  ANTHROPIC_AUTH_TOKEN="${CLIPROXY_API_KEY:?Set CLIPROXY_API_KEY to a proxy client key first}" \\',
     `  ANTHROPIC_MODEL=${quote(model)} \\`,
     ...(model.endsWith('[1m]') ? ['  CLAUDE_CODE_DISABLE_1M_CONTEXT=0 \\'] : []),
-    ...(opts.pinModelDefaults ? MODEL_DEFAULT_KEYS.map(key => `  ${key}=${quote(model)} \\`) : []),
+    ...(opts.pinModelDefaults ? MODEL_DEFAULT_KEYS.map(key => `  ${key}=${quote(addressableModel(roleModel(key,opts),opts.prefix))} \\`) : []),
     `  claude "$@"`,
     `}`,
   ].join('\n');
+}
+
+function roleModel(key: string, input: {model:string;backgroundModel?:string;subagentModel?:string}):string {
+  if(key==='CLAUDE_CODE_SUBAGENT_MODEL') return input.subagentModel || input.model;
+  if(key==='ANTHROPIC_DEFAULT_HAIKU_MODEL'||key==='ANTHROPIC_SMALL_FAST_MODEL') return input.backgroundModel || input.model;
+  return input.model;
 }

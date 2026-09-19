@@ -13,6 +13,10 @@ export interface ConsoleConfig {
   routingMode: 'manual';
   claudeModels: ClaudeModelOption[];
   cliEffort: Effort;
+  cliProfile: string;
+  claudeBackgroundModel: string;
+  claudeSubagentModel: string;
+  receiptRetentionDays: number;
   claudeConfigDir: string;
   desktopConfigDir: string;
   consoleUrl: string;
@@ -22,13 +26,14 @@ export const DEFAULT_PROXY_URL = 'http://127.0.0.1:8317';
 const DEFAULTS: ConsoleConfig = {
   displayName: 'CLIProxy Console', proxyUrl: DEFAULT_PROXY_URL,
   managementKey: '', clientApiKey: '', routingMode: 'manual',
-  claudeModels: DEFAULT_CLAUDE_MODELS, cliEffort: 'high',
+  claudeModels: DEFAULT_CLAUDE_MODELS, cliEffort: 'high', cliProfile:'', claudeBackgroundModel:'', claudeSubagentModel:'', receiptRetentionDays:30,
   claudeConfigDir: CLAUDE_CONFIG_DIR, desktopConfigDir: DESKTOP_CONFIG_DIR, consoleUrl: '',
 };
 const ENV = {
   displayName: 'CLIPROXY_DISPLAY_NAME', proxyUrl: 'CLIPROXY_URL',
   managementKey: 'CLIPROXY_MGMT_KEY', clientApiKey: 'CLIPROXY_API_KEY',
-  claudeModels: 'CLIPROXY_CLAUDE_MODELS', cliEffort: 'CLIPROXY_CLI_EFFORT',
+  claudeModels: 'CLIPROXY_CLAUDE_MODELS', cliEffort: 'CLIPROXY_CLI_EFFORT', cliProfile:'CLIPROXY_CLI_PROFILE',
+  claudeBackgroundModel:'CLIPROXY_CLAUDE_BACKGROUND_MODEL', claudeSubagentModel:'CLIPROXY_CLAUDE_SUBAGENT_MODEL',
   claudeConfigDir: 'CLAUDE_CONFIG_DIR', desktopConfigDir: 'CLIPROXY_DESKTOP_CONFIG_DIR', consoleUrl: 'CLIPROXY_CONSOLE_URL',
 } as const;
 type Source = 'env' | 'sqlite' | 'default';
@@ -48,6 +53,10 @@ export interface PublicSettings {
   sources: Record<keyof typeof ENV, Source>;
   claudeModels: ClaudeModelOption[];
   cliEffort: Effort;
+  cliProfile: string;
+  claudeBackgroundModel: string;
+  claudeSubagentModel: string;
+  receiptRetentionDays: number;
   claudeConfigDir: string;
   desktopConfigDir: string;
   configFile: string;
@@ -79,6 +88,14 @@ function validate(patch: Patch): Partial<ConsoleConfig> {
   if (patch.routingMode !== undefined && patch.routingMode !== 'manual') invalid('Invalid routing mode');
   if (patch.routingMode !== undefined) out.routingMode = 'manual';
   if (patch.claudeModels !== undefined) out.claudeModels = validateClaudeModels(patch.claudeModels);
+  for(const key of ['claudeBackgroundModel','claudeSubagentModel'] as const) {
+    if(patch[key]!==undefined) {if(typeof patch[key]!=='string') invalid('Invalid role model');out[key]=patch[key].trim();}
+  }
+  if(patch.receiptRetentionDays!==undefined) {
+    if(typeof patch.receiptRetentionDays!=='number'||!Number.isInteger(patch.receiptRetentionDays)||patch.receiptRetentionDays<1||patch.receiptRetentionDays>365) invalid('History retention must be 1–365 days');
+    out.receiptRetentionDays=patch.receiptRetentionDays;
+  }
+  if(patch.cliProfile!==undefined) {if(typeof patch.cliProfile!=='string'||patch.cliProfile && !/^[a-zA-Z0-9-]{1,100}$/.test(patch.cliProfile)) invalid('Invalid CLI subscription');out.cliProfile=patch.cliProfile;}
   if (patch.cliEffort !== undefined) {
     if (!EFFORTS.includes(patch.cliEffort as Effort)) invalid('Invalid CLI effort');
     out.cliEffort = patch.cliEffort as Effort;
@@ -166,6 +183,7 @@ export class SettingsStore {
     }
     const cfg: ConsoleConfig = {...DEFAULTS, ...stored, ...validate(overrides), routingMode: 'manual'};
     cfg.consoleUrl ||= consoleOrigin(this.#env);
+    for(const model of [cfg.claudeBackgroundModel,cfg.claudeSubagentModel]) if(model && !cfg.claudeModels.some(m=>m.id===model)) invalid('Background and subagent models must be in the allowed 1M list');
     if (EFFORTS.indexOf(cfg.cliEffort) > EFFORTS.indexOf(cfg.claudeModels[0]!.maxEffort)) invalid('Default CLI effort exceeds the first model’s effort cap');
     return cfg;
   }
@@ -180,7 +198,8 @@ export class SettingsStore {
     const source = (key: keyof typeof ENV): Source => this.#env[ENV[key]]?.trim() ? 'env' : stored[key] ? 'sqlite' : 'default';
     return {
       displayName: cfg.displayName, proxyUrl: cfg.proxyUrl, consoleUrl: cfg.consoleUrl,
-      claudeModels: cfg.claudeModels, cliEffort: cfg.cliEffort, claudeConfigDir: cfg.claudeConfigDir, desktopConfigDir: cfg.desktopConfigDir,
+      claudeBackgroundModel:cfg.claudeBackgroundModel,claudeSubagentModel:cfg.claudeSubagentModel,receiptRetentionDays:cfg.receiptRetentionDays,
+      claudeModels: cfg.claudeModels, cliEffort: cfg.cliEffort, cliProfile:cfg.cliProfile, claudeConfigDir: cfg.claudeConfigDir, desktopConfigDir: cfg.desktopConfigDir,
       routingMode: 'manual', configFile: this.#file,
       hasManagementKey: !!cfg.managementKey, hasStoredManagementKey: !!stored.managementKey,
       keySource: cfg.managementKey ? source('managementKey') as 'env' | 'sqlite' : 'none',

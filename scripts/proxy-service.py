@@ -101,6 +101,8 @@ def point_to(directory):
 def wait_healthy(version):
     for _ in range(40):
         try:
+            # Older consoles cache build identity from management response headers.
+            api('mgmt/routing/strategy')
             health = api('health')
             if health.get('ok') and health.get('proxyVersion') == version:
                 return
@@ -112,6 +114,18 @@ def wait_healthy(version):
 
 def active(label):
     return run('launchctl', 'print', f'{DOMAIN}/{label}', check=False).returncode == 0
+
+
+def bootstrap_agent():
+    # launchd can briefly retain the unloaded job after bootout returns.
+    for attempt in range(20):
+        try:
+            run('launchctl', 'bootstrap', DOMAIN, str(PLIST))
+            return
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 5 or attempt == 19:
+                raise
+            time.sleep(0.25)
 
 
 def activate(target, manifest, before):
@@ -145,7 +159,7 @@ def activate(target, manifest, before):
             run('launchctl', 'bootout', f'{DOMAIN}/{LABEL}')
         point_to(target)
         PLIST.write_bytes(plistlib.dumps(config)); PLIST.chmod(0o600)
-        run('launchctl', 'bootstrap', DOMAIN, str(PLIST))
+        bootstrap_agent()
         wait_healthy(manifest['version'])
         if snapshot() != before:
             raise RuntimeError('Account, routing, or Desktop configuration changed during activation')
@@ -159,7 +173,7 @@ def activate(target, manifest, before):
                 run(BREW,'services','start','cliproxyapi')
         else:
             shutil.copy2(backup / PLIST.name, PLIST)
-            run('launchctl','bootstrap',DOMAIN,str(PLIST))
+            bootstrap_agent()
         wait_healthy(previous_version)
         raise
     print(json.dumps(state, indent=2))
@@ -201,10 +215,15 @@ def deploy(args):
         source = args.release_dir.resolve(); manifest = validate_release(source)
         target = ROOT / 'releases' / manifest['version']
         if target.exists():
-            raise ValueError('Release already installed; use a new immutable release name')
-        target.mkdir(mode=0o700)
-        shutil.copy2(source / 'cliproxyapi',target / 'cliproxyapi'); (target / 'cliproxyapi').chmod(0o755)
-        shutil.copy2(source / 'manifest.json',target / 'manifest.json')
+            # A failed activation may have staged this exact immutable release.
+            same_manifest = json.loads((target / 'manifest.json').read_text()) == manifest
+            same_binary = hashlib.sha256((source / 'cliproxyapi').read_bytes()).digest() == hashlib.sha256((target / 'cliproxyapi').read_bytes()).digest()
+            if not same_manifest or not same_binary:
+                raise ValueError('Release already exists with different contents; use a new immutable release name')
+        else:
+            target.mkdir(mode=0o700)
+            shutil.copy2(source / 'cliproxyapi',target / 'cliproxyapi'); (target / 'cliproxyapi').chmod(0o755)
+            shutil.copy2(source / 'manifest.json',target / 'manifest.json')
         # Seed the first rollback release from the exact currently installed binary.
         if not (ROOT / 'current').exists():
             original = (BREW_PREFIX / 'opt/cliproxyapi/bin/cliproxyapi').resolve()

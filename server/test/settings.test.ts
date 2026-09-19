@@ -127,3 +127,13 @@ test('frontend model configuration persists and rejects 200K, prefixed IDs, dupl
   assert.equal((await override.publicView()).sources.claudeModels,'env');
   assert.equal((await store.load()).claudeModels[0]?.label,'Primary Claude');
 }));
+
+test('role models and request retention are validated together with the model allowlist',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'settings-roles-'));
+ try {const store=new SettingsStore(path.join(dir,'settings.sqlite'),{env:{}});
+  await store.update({claudeBackgroundModel:'claude-fable-5-1',claudeSubagentModel:'claude-opus-5',receiptRetentionDays:7});
+  const view=await store.publicView();assert.equal(view.claudeBackgroundModel,'claude-fable-5-1');assert.equal(view.receiptRetentionDays,7);
+  await assert.rejects(store.update({receiptRetentionDays:0}));await assert.rejects(store.update({claudeBackgroundModel:'unknown'}));
+  await assert.rejects(store.update({claudeModels:[{id:'claude-opus-5',label:'Opus',contextWindow:1000000,maxEffort:'max'}]}));
+ } finally {await rm(dir,{recursive:true,force:true});}
+});

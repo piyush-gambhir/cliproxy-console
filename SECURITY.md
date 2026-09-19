@@ -28,9 +28,9 @@ clients. Treat those previews as sensitive. Provider credentials stay in the
 proxy's auth store. Backups of local configuration may contain secrets.
 
 The console blocks raw proxy configuration and credential-download endpoints.
-Subscription-scoped inference validates a unique account route and rejects
-automatic retry/fallback settings. Changes to upstream account prefixes outside
-this console can affect future routing and should be revalidated.
+The native gateway pins inference to a specific enabled Claude credential in the proxy, independently of the console. Native route management and receipt reads require the management key; inference requires a proxy client key. The compatibility relay on unmodified upstream validates unique prefixes and rejects automatic retry/fallback settings.
+
+The request-history database and bounded proxy receipt journal store model, account-route, session/agent IDs, token counts and error types. They do not store prompts, responses or keys. These metadata are still private and should not be committed or shared. Console retention does not control separate proxy request logs.
 
 This project does not establish provider eligibility or override provider rules,
 quotas, billing, or organization policy. Public source code does not make a local

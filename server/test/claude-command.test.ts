@@ -18,3 +18,10 @@ test('portable launch uses the selected route and pins all model roles without a
     assert.throws(() => claudeCommand("account'; echo bad", 'claude-opus-5', 'high', 'http://localhost:9460'));
   } finally { await rm(dir, {recursive: true, force: true}); }
 });
+
+test('helper and subagent choices are explicit and independently configurable',()=>{
+ const command=claudeCommand('a','claude-opus-5','high','http://localhost:8317',undefined,{backgroundModel:'claude-fable-5-1',subagentModel:'claude-opus-5'});
+ assert.match(command,/ANTHROPIC_DEFAULT_HAIKU_MODEL='claude-fable-5-1\[1m\]'/);
+ assert.match(command,/CLAUDE_CODE_SUBAGENT_MODEL='claude-opus-5\[1m\]'/);
+ assert.throws(()=>claudeCommand('a','claude-opus-5','high','http://localhost:8317',undefined,{backgroundModel:"bad';echo x"}));
+});

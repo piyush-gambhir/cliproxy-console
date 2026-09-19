@@ -124,6 +124,19 @@ class DeploymentTests(unittest.TestCase):
                     service.main()
                 self.assertEqual(deploy.call_args.args[0].action, action)
 
+    def test_bootstrap_retries_launchd_busy_only(self):
+        self.run.side_effect = [subprocess.CalledProcessError(5, 'launchctl'), None]
+        with patch.object(service.time, 'sleep') as sleep:
+            service.bootstrap_agent()
+            sleep.assert_called_once_with(0.25)
+        self.assertEqual(self.run.call_count, 2)
+        self.run.reset_mock()
+        self.run.side_effect = subprocess.CalledProcessError(1, 'launchctl')
+        with patch.object(service.time, 'sleep') as sleep:
+            with self.assertRaises(subprocess.CalledProcessError):
+                service.bootstrap_agent()
+            sleep.assert_not_called()
+
     def test_release_manifest_must_match_the_actual_binary(self):
         self.identity.return_value = (self.manifest['version'], self.manifest['commit'])
         self.assertEqual(service.validate_release(self.target), self.manifest)
@@ -138,6 +151,11 @@ class DeploymentTests(unittest.TestCase):
 
 
 class LocalConfigurationTests(unittest.TestCase):
+    def test_health_check_refreshes_build_identity(self):
+        with patch.object(service, 'api', side_effect=[{}, {'ok': True, 'proxyVersion': 'new'}]) as api:
+            service.wait_healthy('new')
+            self.assertEqual([call.args[0] for call in api.call_args_list], ['mgmt/routing/strategy', 'health'])
+
     def test_installer_and_launcher_use_custom_local_options(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()

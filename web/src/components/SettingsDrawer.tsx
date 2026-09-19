@@ -20,6 +20,9 @@ export function SettingsDrawer({
   const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl);
   const [displayName, setDisplayName] = useState(settings.displayName);
   const [models, setModels] = useState(settings.claudeModels);
+  const [backgroundModel,setBackgroundModel] = useState(settings.claudeBackgroundModel);
+  const [subagentModel,setSubagentModel] = useState(settings.claudeSubagentModel);
+  const [retention,setRetention] = useState(settings.receiptRetentionDays);
   const [cliEffort, setCliEffort] = useState(settings.cliEffort);
   const [consoleUrl, setConsoleUrl] = useState(settings.consoleUrl);
   const [claudeConfigDir, setClaudeConfigDir] = useState(settings.claudeConfigDir);
@@ -35,6 +38,9 @@ export function SettingsDrawer({
     try {
       const patch: Parameters<typeof api.saveSettings>[0] = {};
       if (JSON.stringify(models) !== JSON.stringify(settings.claudeModels)) patch.claudeModels = models;
+      if(backgroundModel !== settings.claudeBackgroundModel) patch.claudeBackgroundModel=backgroundModel;
+      if(subagentModel !== settings.claudeSubagentModel) patch.claudeSubagentModel=subagentModel;
+      if(retention !== settings.receiptRetentionDays) patch.receiptRetentionDays=retention;
       if (cliEffort !== settings.cliEffort) patch.cliEffort = cliEffort;
       if (consoleUrl !== settings.consoleUrl) patch.consoleUrl = consoleUrl;
       if (claudeConfigDir !== settings.claudeConfigDir) patch.claudeConfigDir = claudeConfigDir;
@@ -49,7 +55,7 @@ export function SettingsDrawer({
     } finally {
       setBusy(false);
     }
-  }, [key, clientKey, settings, onSaved, proxyUrl, displayName, models, cliEffort, consoleUrl, claudeConfigDir, desktopConfigDir]);
+  }, [backgroundModel, subagentModel, retention, key, clientKey, settings, onSaved, proxyUrl, displayName, models, cliEffort, consoleUrl, claudeConfigDir, desktopConfigDir]);
 
   const clearKey = useCallback(async (field: 'managementKey' | 'clientApiKey') => {
     setBusy(true);
@@ -142,19 +148,22 @@ export function SettingsDrawer({
           </Card>)}
           <Button variant="secondary" disabled={settings.sources.claudeModels === 'env'} onClick={() => setModels(current => [...current,{id:'',label:'',contextWindow:1000000,maxEffort:'max'}])}>Add 1M model</Button>
           <Field label="Default CLI reasoning effort"><SelectField value={cliEffort} disabled={settings.sources.cliEffort === 'env'} onChange={e => setCliEffort(e.target.value as Settings['cliEffort'])}>{['low','medium','high','xhigh','max'].map(value => <SelectChoice key={value} value={value}>{value}</SelectChoice>)}</SelectField></Field>
+          <Field label="Background helper model" hint="The Haiku role uses this model. Choosing Opus here makes background work consume Opus usage too. Apply in Claude setup to update shared local settings."><SelectField value={backgroundModel} disabled={settings.sources.claudeBackgroundModel === 'env'} onChange={e => setBackgroundModel(e.target.value)}><SelectChoice value="">Use the selected main model at setup</SelectChoice>{models.filter(m=>m.id).map(m=><SelectChoice key={m.id} value={m.id}>{m.label} · 1M</SelectChoice>)}</SelectField></Field>
+          <Field label="Default subagent model" hint="A subagent with its own model setting can override this default. The gateway still enforces the allowed model list and selected account."><SelectField value={subagentModel} disabled={settings.sources.claudeSubagentModel === 'env'} onChange={e => setSubagentModel(e.target.value)}><SelectChoice value="">Use the selected main model at setup</SelectChoice>{models.filter(m=>m.id).map(m=><SelectChoice key={m.id} value={m.id}>{m.label} · 1M</SelectChoice>)}</SelectField></Field>
           <Notice tone="plain" title="Claude Desktop controls its own picker"><p>The console lists only 1M models and defaults clients to 1M. Claude Desktop also creates a standard-context row internally; its supported settings cannot hide that row. Existing sessions may need the 1M variant selected once.</p></Notice>
         </CollapsibleContent>
       </Collapsible>
       <Collapsible className="settings-section">
         <CollapsibleTrigger asChild><Button variant="secondary">Client connections and folders</Button></CollapsibleTrigger>
         <CollapsibleContent className="settings-fields">
-          <Field label="Console URL for clients" hint="Used in generated client routes. Must point to this console on a loopback address. Reapply client setup after changing it."><FormInput className="mono" disabled={settings.sources.consoleUrl === 'env'} value={consoleUrl} onChange={e => setConsoleUrl(e.target.value)}/></Field>
+          <Field label="Console URL for clients" hint="Compatibility endpoint for older clients. Native account routes use the proxy URL directly. Reapply client setup after changing it."><FormInput className="mono" disabled={settings.sources.consoleUrl === 'env'} value={consoleUrl} onChange={e => setConsoleUrl(e.target.value)}/></Field>
           <Field label="Claude CLI configuration folder" hint="Shared local profile. Choosing another folder does not move conversation history."><FormInput className="mono" disabled={settings.sources.claudeConfigDir === 'env'} value={claudeConfigDir} onChange={e => setClaudeConfigDir(e.target.value)}/></Field>
           <Field label="Claude Desktop configuration folder" hint="Select the existing configLibrary directory containing _meta.json."><FormInput className="mono" disabled={settings.sources.desktopConfigDir === 'env'} value={desktopConfigDir} onChange={e => setDesktopConfigDir(e.target.value)}/></Field>
           <p className="microcopy">Fields controlled by the server environment are locked. Desktop and CLI model, subscription, effort, and permission defaults are managed in Claude setup. Proxy routing is managed in Request settings.</p>
         </CollapsibleContent>
       </Collapsible>
 
+      <Field label="Request history retention (days)" hint="Keep routing, model and token metadata for 1–365 days in local SQLite. No prompts, responses or keys are stored in this history."><FormInput type="number" min={1} max={365} value={retention} onChange={e=>setRetention(Number(e.target.value))}/></Field>
       <DeploymentSettings/>
       <Notice tone="plain" title="Local SQLite database">
         <p className="muted mono">{settings.configFile}</p>

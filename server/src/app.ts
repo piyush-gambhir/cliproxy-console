@@ -1,4 +1,6 @@
-import {relayInference, subscriptionUrl} from './inference.ts';
+import {roleSettingsMatch,applyRoleSettings} from './role-settings.ts';
+import type {GatewayService} from './gateway.ts';
+import {relayInference, relayNative, subscriptionUrl} from './inference.ts';
 import {readDesktop, desktopCatalog, applyDesktop} from './desktop.ts';
 import { fetchSubscriptionUsage, type SubscriptionUsage } from './subscriptions.ts';
 import { readRouting, updateRouting, resolveSelection, setProfilePrefix } from './routing.ts';
@@ -24,6 +26,7 @@ import {
 } from './wire.ts';
 
 export interface AppDeps {
+  gateway?: GatewayService;
   settings: SettingsStore;
   profiles: ProfileStore;
   mgmt: MgmtClient;
@@ -140,18 +143,30 @@ export function createApp(deps: AppDeps) {
         const match = /^\/inference\/([^/]+)(\/v1\/(?:models|messages(?:\/count_tokens)?))$/.exec(pathname);
         if (!match || [...query.keys()].some(key => key !== 'beta') || (query.has('beta') && query.get('beta') !== 'true')) throw new WireError('Unsupported inference endpoint', 404);
         const {proxyUrl, claudeModels} = await deps.settings.load();
+        if (deps.gateway?.ready) return await relayNative(req,res,decodeURIComponent(match[1]!),match[2]!+search,proxyUrl);
         return await relayInference(req,res,decodeURIComponent(match[1]!),match[2]!,proxyUrl,deps.mgmt,deps.profiles,claudeModels);
       }
+      if (pathname === '/api/gateway' && method === 'GET' && deps.gateway) return sendJson(res,200,await deps.gateway.view());
+      if (pathname === '/api/requests' && method === 'GET' && deps.gateway) return sendJson(res,200,{receipts:deps.gateway.receipts.list(query.get('profile') || ''),gateway:await deps.gateway.view(),profiles:await deps.profiles.list()});
+      if (pathname === '/api/gateway/sync' && method === 'POST' && deps.gateway) {await deps.gateway.sync(true);return sendJson(res,200,await deps.gateway.view());}
       if (pathname === '/api/desktop' && method === 'GET') {
         const cfg = await deps.settings.load();
         let desktop;
         try { desktop = await readDesktop(cfg.desktopConfigDir); }
         catch (err) { if (!(err instanceof WireError) || err.status !== 409) throw err; desktop = {profile:'',autoMode:false,models:[],defaultEffort:'',alwaysDefault:true,gatewayUrl:'',setupRequired:true}; }
-        return sendJson(res, 200, {...desktop, consoleUrl:cfg.consoleUrl, claudeConfigDir:cfg.claudeConfigDir, allowedModels:cfg.claudeModels, cliEffort:cfg.cliEffort, catalog: await desktopCatalog(deps.mgmt, deps.profiles)});
+        const first = desktop.models[0];
+        const mainModel = typeof first === 'object' && first ? first.name : typeof first === 'string' ? first : cfg.claudeModels[0]!.id;
+        return sendJson(res, 200, {...desktop, roleSettingsMatch:await roleSettingsMatch(cfg.claudeConfigDir,mainModel,cfg.claudeBackgroundModel,cfg.claudeSubagentModel), consoleUrl:cfg.consoleUrl, inferenceUrl:deps.gateway?.ready ? cfg.proxyUrl : cfg.consoleUrl, gateway:await deps.gateway?.view(), claudeBackgroundModel:cfg.claudeBackgroundModel, claudeSubagentModel:cfg.claudeSubagentModel, claudeConfigDir:cfg.claudeConfigDir, allowedModels:cfg.claudeModels, cliEffort:cfg.cliEffort, cliProfile:cfg.cliProfile, catalog: await desktopCatalog(deps.mgmt, deps.profiles)});
       }
       if (pathname === '/api/desktop' && method === 'PUT') {
         const cfg = await deps.settings.load();
-        return sendJson(res, 200, await applyDesktop(deps.mgmt, deps.profiles, cfg.proxyUrl, await readJsonBody<Record<string, unknown>>(req), cfg.desktopConfigDir, cfg.consoleUrl, cfg.claudeModels));
+        await deps.gateway?.sync(true);
+        const body = await readJsonBody<Record<string,unknown>>(req);
+        const result = await applyDesktop(deps.mgmt, deps.profiles, cfg.proxyUrl, body, cfg.desktopConfigDir, deps.gateway?.ready ? cfg.proxyUrl : cfg.consoleUrl, cfg.claudeModels, [cfg.consoleUrl, cfg.proxyUrl]);
+        try {
+          const roles = await applyRoleSettings(cfg.claudeConfigDir,(body.models as {name:string}[])[0]!.name,cfg.claudeBackgroundModel,cfg.claudeSubagentModel);
+          return sendJson(res,200,{...result,roleSettingsMatch:true,roleSettingsBackup:roles.backup});
+        } catch(err) {await fs.copyFile(result.backup,result.file);throw err;}
       }
       if (pathname === '/api/service-settings' && deps.serviceSettings) {
         if (method === 'GET') return sendJson(res,200,await deps.serviceSettings.view());
@@ -167,7 +182,10 @@ export function createApp(deps: AppDeps) {
       }
       if (pathname === '/api/settings' && method === 'PUT') {
         const body = await readJsonBody<Record<string, unknown>>(req);
-        return sendJson(res, 200, await deps.settings.update(body));
+        if(body.cliProfile) {const selected=await deps.profiles.get(String(body.cliProfile));if(!selected.authFile.startsWith('claude-')) throw new WireError('Choose a Claude subscription for the CLI');}
+        const updated = await deps.settings.update(body);
+        await deps.gateway?.sync(true);
+        return sendJson(res, 200, {...updated,gateway:await deps.gateway?.view()});
       }
 
       // ---------- proxy health ----------
@@ -192,7 +210,9 @@ export function createApp(deps: AppDeps) {
       if (pathname.match(/^\/api\/profiles\/[^/]+\/prefix$/) && method === 'PUT') {
         const id = decodeURIComponent(pathname.split('/')[3]!);
         const body = await readJsonBody<Record<string, unknown>>(req);
-        return sendJson(res, 200, await setProfilePrefix(deps.mgmt, deps.profiles, id, body.prefix));
+        const updated = await setProfilePrefix(deps.mgmt, deps.profiles, id, body.prefix);
+        await deps.gateway?.sync(true);
+        return sendJson(res, 200, updated);
       }
 
       if (pathname.match(/^\/api\/profiles\/[^/]+\/usage$/) && (method === 'GET' || method === 'POST')) {
@@ -240,17 +260,23 @@ export function createApp(deps: AppDeps) {
       }
       if (pathname === '/api/profiles' && method === 'POST') {
         const body = await readJsonBody<Record<string, unknown>>(req);
-        return sendJson(res, 201, await deps.profiles.create(body));
+        const result = await deps.profiles.create(body);
+        await deps.gateway?.sync(true);
+        return sendJson(res, 201, result);
       }
       if (pathname.startsWith('/api/profiles/')) {
         const id = decodeURIComponent(pathname.slice('/api/profiles/'.length));
         if (method === 'GET') return sendJson(res, 200, await deps.profiles.get(id));
         if (method === 'PUT' || method === 'PATCH') {
           const body = await readJsonBody<Record<string, unknown>>(req);
-          return sendJson(res, 200, await deps.profiles.update(id, body));
+          const result = await deps.profiles.update(id, body);
+          await deps.gateway?.sync(true);
+          return sendJson(res, 200, result);
         }
         if (method === 'DELETE') {
-          return sendJson(res, 200, await deps.profiles.remove(id));
+          const result = await deps.profiles.remove(id);
+          await deps.gateway?.sync(true);
+          return sendJson(res, 200, result);
         }
       }
 
@@ -264,9 +290,10 @@ export function createApp(deps: AppDeps) {
         if (profile.authFile.startsWith('claude-')) {
           const canonical = selection.model.slice(profile.lastKnownPrefix!.length + 1);
           if (!configured.claudeModels.some(option => option.id === canonical)) throw new WireError('Choose an allowed official Anthropic model');
-          selection.model = `${canonical}[1m]`; proxyUrl = subscriptionUrl(profile.id, deps.settings.consoleUrl);
+          selection.model = `${canonical}[1m]`; proxyUrl = subscriptionUrl(profile.id, deps.gateway?.ready ? configured.proxyUrl : configured.consoleUrl);
         }
         const input = wireInputFrom({ ...body, ...selection, apiKey: body.apiKey || configured.clientApiKey }, proxyUrl);
+        if (profile.authFile.startsWith('claude-')) { input.backgroundModel = configured.claudeBackgroundModel ? `${configured.claudeBackgroundModel}[1m]` : input.model; input.subagentModel = configured.claudeSubagentModel ? `${configured.claudeSubagentModel}[1m]` : input.model; }
         if (pathname === '/api/wire/preview') {
           return sendJson(res, 200, await planWire(input));
         }
@@ -285,14 +312,14 @@ export function createApp(deps: AppDeps) {
         if (profile.authFile.startsWith('claude-')) {
           const canonical = selection.model.slice(profile.lastKnownPrefix!.length + 1);
           if (!configured.claudeModels.some(option => option.id === canonical)) throw new WireError('Choose an allowed official Anthropic model');
-          selection.model = `${canonical}[1m]`; proxyUrl = subscriptionUrl(profileId, deps.settings.consoleUrl);
+          selection.model = `${canonical}[1m]`; proxyUrl = subscriptionUrl(profileId, deps.gateway?.ready ? configured.proxyUrl : configured.consoleUrl);
         }
         const { model, prefix } = selection;
         let functionName = query.get('name') ?? 'cliproxy';
         if (profileId) functionName = (await deps.profiles.get(profileId)).name;
         if (prefix) assertValidPrefix(prefix);
         return sendJson(res, 200, {
-          snippet: zshSnippet({ functionName, proxyUrl, model, prefix, pinModelDefaults: true }),
+          snippet: zshSnippet({ functionName, proxyUrl, model, prefix, pinModelDefaults: true, backgroundModel:configured.claudeBackgroundModel ? `${configured.claudeBackgroundModel}[1m]` : model, subagentModel:configured.claudeSubagentModel ? `${configured.claudeSubagentModel}[1m]` : model }),
         });
       }
 

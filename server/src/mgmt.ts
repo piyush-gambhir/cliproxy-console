@@ -104,12 +104,20 @@ export class MgmtClient {
 
   /** GET ${proxyUrl}/healthz — public, no key needed. */
   async health(): Promise<{ ok: boolean; error?: string }> {
-    const { proxyUrl } = await this.#settings.load();
+    const { proxyUrl, managementKey } = await this.#settings.load();
+    this.#lastVersion = null;
     try {
       const res = await fetch(`${proxyUrl}/healthz`, {
         signal: AbortSignal.timeout(4000),
       });
       const text = await res.text();
+      if(res.ok && managementKey) {
+        try {
+          const metadata=await fetch(`${proxyUrl}/v0/management/routing/strategy`,{headers:{Authorization:`Bearer ${managementKey}`},signal:AbortSignal.timeout(4000)});
+          this.#lastVersion=metadata.headers.get('x-cpa-version');
+          await metadata.arrayBuffer();
+        } catch { /* Health and build identity are separate observations. */ }
+      }
       return { ok: res.ok && text.includes('"ok"') };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

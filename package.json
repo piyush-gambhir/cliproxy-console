@@ -18,7 +18,8 @@
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
     "test": "npm run test -w server",
     "test:routing-integration": "node scripts/verify-routing.mjs",
-    "test:service": "python3 -B -m unittest discover -s scripts/tests"
+    "test:service": "python3 -B -m unittest discover -s scripts/tests",
+    "test:gateway-integration": "node scripts/verify-native-gateway.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

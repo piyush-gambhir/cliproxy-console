@@ -50,7 +50,7 @@ export async function relayInference(req: IncomingMessage, res: ServerResponse, 
   if (!selected.authFile.startsWith('claude-')) throw new WireError('Choose a Claude subscription');
   const selection = await resolveSelection(mgmt, profiles, {profile, model: body.model});
   const headers = new Headers({'content-type':'application/json'});
-  for (const name of ['authorization','x-api-key','anthropic-version','anthropic-beta','user-agent','x-app']) {
+  for (const name of Object.keys(req.headers).filter(name => ['authorization','x-api-key','user-agent','x-app'].includes(name) || name.startsWith('anthropic-') || name.startsWith('x-claude-') || name.startsWith('x-stainless-'))) {
     const value = req.headers[name]; if (typeof value === 'string') headers.set(name, value);
   }
   // Claude strips [1m] from wire IDs; request the configured 1M capability explicitly.
@@ -63,7 +63,7 @@ export async function relayInference(req: IncomingMessage, res: ServerResponse, 
     const upstream = await fetch(`${proxyUrl.replace(/\/$/,'')}${endpoint}`, {method:'POST',headers,body:JSON.stringify({...body,model:selection.model}),signal:controller.signal,redirect:'error'});
     res.statusCode = upstream.status;
     for (const [key,value] of upstream.headers) {
-      if (['content-type','request-id','retry-after'].includes(key) || key.startsWith('anthropic-ratelimit-')) res.setHeader(key,value);
+      if (['content-type','request-id','retry-after','x-should-retry','x-cliproxy-receipt','x-cliproxy-subscription'].includes(key) || key.startsWith('anthropic-ratelimit-')) res.setHeader(key,value);
     }
     res.setHeader('Cache-Control','no-store');
     res.setHeader('X-CLIProxy-Subscription',profile);
@@ -75,4 +75,24 @@ export async function relayInference(req: IncomingMessage, res: ServerResponse, 
       else throw new WireError('Inference upstream connection failed',502);
     }
   } finally {res.off('close',cancel);}
+}
+
+/** Compatibility route for existing clients. New client configurations go directly to the proxy. */
+export async function relayNative(req: IncomingMessage,res:ServerResponse,profile:string,endpoint:string,proxyUrl:string) {
+ const headers=new Headers();
+ const blocked=new Set(['host','connection','content-length','transfer-encoding','keep-alive','upgrade','proxy-authorization','proxy-authenticate','te','trailer','cookie']);
+ for(const item of String(req.headers.connection || '').split(',')) blocked.add(item.trim().toLowerCase());
+ for(const [name,value] of Object.entries(req.headers)) if(!blocked.has(name)&&typeof value==='string') headers.set(name,value);
+ const controller=new AbortController();const cancel=()=>controller.abort();res.once('close',cancel);
+ try {
+  const init:RequestInit & {duplex?:string}={method:req.method,headers,signal:controller.signal,redirect:'error'};
+  if(req.method!=='GET'&&req.method!=='HEAD'){init.body=Readable.toWeb(req) as never;init.duplex='half';}
+  const upstream=await fetch(`${proxyUrl.replace(/\/$/,'')}/inference/${encodeURIComponent(profile)}${endpoint}`,init);
+  res.statusCode=upstream.status;
+  const responseBlocked=new Set(['connection','content-length','transfer-encoding','keep-alive','upgrade','proxy-authorization','proxy-authenticate','te','trailer','content-encoding','set-cookie']);
+  for(const item of (upstream.headers.get('connection') || '').split(','))responseBlocked.add(item.trim().toLowerCase());
+  for(const [name,value] of upstream.headers)if(!responseBlocked.has(name))res.setHeader(name,value);
+  if(upstream.body)await pipeline(Readable.fromWeb(upstream.body as never),res);else res.end();
+ }catch(err){if(!controller.signal.aborted){if(res.headersSent)res.destroy();else throw new WireError('Native gateway connection failed',502);}}
+ finally{res.off('close',cancel);}
 }

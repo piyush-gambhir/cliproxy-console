@@ -1,4 +1,5 @@
 import {Button} from '@/components/ui/button';
+import {Requests} from './views/Requests.tsx';
 import { Desktop } from './views/Desktop.tsx';
 import { RoutingSettings } from './views/RoutingSettings.tsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -9,10 +10,11 @@ import { Wire } from './views/Wire.tsx';
 import { SettingsDrawer } from './components/SettingsDrawer.tsx';
 import { Toasts, type Toast } from './components/ui.tsx';
 
-type Screen = 'profiles' | 'wire' | 'routing' | 'desktop';
+type Screen = 'profiles' | 'wire' | 'routing' | 'desktop' | 'requests';
 
 const SCREENS: Array<{ id: Screen; label: string }> = [
   { id: 'desktop', label: 'Claude setup' },
+  { id: 'requests', label: 'Request history' },
   { id: 'profiles', label: 'Subscriptions & usage' },
   { id: 'wire', label: 'Advanced connections' },
   { id: 'routing', label: 'Request settings' },
@@ -20,7 +22,7 @@ const SCREENS: Array<{ id: Screen; label: string }> = [
 
 function screenFromHash(): Screen {
   const value = window.location.hash.slice(1).split('?')[0];
-  return value === 'profiles' || value === 'wire' || value === 'routing' ? value : 'desktop';
+  return value === 'requests' || value === 'profiles' || value === 'wire' || value === 'routing' ? value : 'desktop';
 }
 
 export function App() {
@@ -118,7 +120,7 @@ export function App() {
         </nav>
 
         <main className="main">
-          {screen === 'profiles' ? (
+          {screen === 'requests' ? <Requests/> : screen === 'profiles' ? (
             <Profiles
               proxyUrl={settings?.proxyUrl ?? 'http://127.0.0.1:8317'}
               onOpenSettings={() => setShowSettings(true)}
@@ -142,7 +144,7 @@ export function App() {
             setSettings(next);
             setShowSettings(false);
             window.dispatchEvent(new Event('console-settings-saved'));
-            toast('ok', 'Settings saved');
+            if(next.gateway?.error)toast('err','Settings saved; proxy sync pending',next.gateway.error);else toast('ok', 'Settings saved');
           }}
         />
       ) : null}
