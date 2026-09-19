@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible issue using sanitized details.
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include API keys, OAuth files, account email addresses, or full configuration dumps. Report security issues privately through the Security tab."
+  - type: input
+    id: versions
+    attributes:
+      label: Versions and platform
+      description: Console commit, CLIProxyAPI version, Node version, and OS.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Use fake account names and redact sensitive paths.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true

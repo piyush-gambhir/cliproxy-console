@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Launch the current managed proxy release with its configured local settings."""
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+root = Path(os.environ.get('CLIPROXY_SERVICE_DIR', str(Path.home() / '.cliproxy-console/proxy-service'))).expanduser()
+settings_file = root / 'service-settings.json'
+settings = json.loads(settings_file.read_text()) if settings_file.is_file() else {}
+brew = os.environ.get('CLIPROXY_BREW') or settings.get('brewBinary') or shutil.which('brew') or '/opt/homebrew/bin/brew'
+prefix = Path(os.environ.get('CLIPROXY_BREW_PREFIX') or settings.get('brewPrefix') or str(Path(brew).parent.parent))
+config = Path(os.environ.get('CLIPROXY_CONFIG') or settings.get('config') or str(prefix / 'etc/cliproxyapi.conf')).expanduser()
+binary = root / 'current/cliproxyapi'
+if not binary.is_file():
+    sys.exit('No managed proxy release is installed. See docs/proxy-service.md.')
+os.execv(str(binary), [str(binary), '-config', str(config), *sys.argv[1:]])

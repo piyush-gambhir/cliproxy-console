@@ -1,0 +1,35 @@
+{
+  "name": "cliproxy-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local console for managing CLIProxyAPI accounts as named profiles and wiring Claude Code to them.",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm run test -w server",
+    "test:routing-integration": "node scripts/verify-routing.mjs",
+    "test:service": "python3 -B -m unittest discover -s scripts/tests"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piyush-gambhir/cliproxy-console.git"
+  },
+  "bugs": {
+    "url": "https://github.com/piyush-gambhir/cliproxy-console/issues"
+  }
+}
