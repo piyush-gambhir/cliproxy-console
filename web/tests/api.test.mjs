@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
-import ts from 'typescript';
+import {stripTypeScriptTypes} from 'node:module';
 const source=fs.readFileSync(new URL('../src/api.ts',import.meta.url),'utf8');
-const compiled=ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext});
+const compiled=stripTypeScriptTypes(source);
 const {request}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 const saved=new Map();globalThis.sessionStorage={getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v),removeItem:k=>saved.delete(k)};
 let authEvents=0;globalThis.window={dispatchEvent:()=>authEvents++};
