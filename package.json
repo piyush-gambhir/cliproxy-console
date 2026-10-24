@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Frontend for CLIProxyAPI native management APIs",
   "engines": {
-    "node": "24.x"
+    "node": ">=24.22.1 <25"
   },
   "workspaces": [
     "web"
