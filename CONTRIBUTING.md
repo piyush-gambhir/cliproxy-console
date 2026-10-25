@@ -1,25 +1,25 @@
 # Contributing
 
-Use Node.js 24+ and `npm ci`. Development runs with `npm run dev`; the API is on
-127.0.0.1:8320 and the web development server is on 127.0.0.1:8321.
+Use Node.js 26.12.1 and `npm ci`. Development runs with `npm run dev` on
+127.0.0.1:8321. The native management API defaults to 127.0.0.1:8317; set
+`CLIPROXY_DEV_API` to use a disposable local proxy instead.
 
 Before submitting a change, run:
 
 ```sh
 npm run typecheck
 npm test
-npm run test:service
 npm run build
 ```
 
-For request routing changes, also run `npm run test:routing-integration` with
-`CLIPROXY_BIN` pointing to a tested CLIProxyAPI binary. Use fake accounts and local
-providers in tests. Never consume a real account's quota in CI.
+For API changes, use disposable local management API fixtures or a tested local
+CLIProxyAPI instance with fake accounts. Never consume a real account's quota in CI.
 
 Preserve explicit account selection, rejection of ambiguous routes, and the absence
 of automatic account fallback. Keep provider credentials out of responses and logs.
-The console management key remains server-side; client-key previews are intentional
-and must not appear in diagnostics or screenshots. Read `SECURITY.md` before changing
+The console management key remains in browser tab session storage, as described
+in `SECURITY.md`; it and client-key previews must not appear in diagnostics or
+screenshots. Read `SECURITY.md` before changing
 local request validation, filesystem writes, or management endpoint forwarding.
 
 Use the shadcn/ui layer for UI controls. Keep the borderless, shadow-free visual
