@@ -11,7 +11,7 @@ The proxy serves the built frontend from `/console/`.
 
 ## Run
 
-Build the frontend with Node 24 or newer:
+Build the frontend with Node 26.12.1:
 
 ```sh
 npm ci
