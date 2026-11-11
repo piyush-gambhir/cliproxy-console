@@ -2,7 +2,12 @@
 
 [![Checks](https://github.com/piyush-gambhir/cliproxy-console/actions/workflows/ci.yml/badge.svg)](https://github.com/piyush-gambhir/cliproxy-console/actions/workflows/ci.yml)
 
-A React and shadcn/ui **frontend** for [CLIProxyAPI](https://github.com/piyush-gambhir/CLIProxyAPI/tree/piyush).
+A React and shadcn/ui **frontend** for [CLIProxyAPI](https://github.com/piyush-gambhir/CLIProxyAPI/tree/archive/piyush-2026-10-21).
+
+> [!NOTE]
+> The native console backend this frontend needs is not in CLIProxyAPI `main`. It is kept in the
+> fork's [`archive/piyush-2026-10-21`](https://github.com/piyush-gambhir/CLIProxyAPI/tree/archive/piyush-2026-10-21)
+> tag, the former `piyush` branch. A proxy built from `main` does not serve `/console/`.
 
 CLIProxyAPI owns authentication, subscriptions, model policy, routing, usage checks,
 request history, client setup, storage, and the Claude launcher. This repository has
@@ -34,7 +39,7 @@ storage; **Lock console** clears it. The frontend sends authenticated requests d
 to `/v0/management/console/*` and the proxy's existing `/v0/management/*` endpoints.
 
 Unmodified upstream does not contain these native console endpoints. There is no
-fallback Node backend. See the fork's [native console documentation](https://github.com/piyush-gambhir/CLIProxyAPI/blob/piyush/docs/native-console.md)
+fallback Node backend. See the fork's [native console documentation](https://github.com/piyush-gambhir/CLIProxyAPI/blob/archive/piyush-2026-10-21/docs/native-console.md)
 for installation, migration, storage, CLI launch, and rollback.
 
 ## Features
